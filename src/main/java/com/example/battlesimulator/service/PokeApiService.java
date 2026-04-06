@@ -22,6 +22,23 @@ import java.util.Map;
 
 @Service
 public class PokeApiService {
+    private static final java.util.Set<String> SUPPORTED_MEGA_SPECIES = java.util.Set.of(
+            "venusaur-mega",
+            "charizard-mega-x",
+            "charizard-mega-y",
+            "blastoise-mega",
+            "alakazam-mega",
+            "gardevoir-mega",
+            "mawile-mega",
+            "lucario-mega",
+            "scizor-mega",
+            "tyranitar-mega",
+            "garchomp-mega",
+            "salamence-mega",
+            "sableye-mega",
+            "metagross-mega",
+            "rayquaza-mega"
+    );
 
     private static final Map<String, String> MOVE_ALIASES = Map.ofEntries(
             Map.entry("softboiled", "soft-boiled"),
@@ -118,6 +135,7 @@ public class PokeApiService {
 
         return apiResponse.results().stream()
                 .map(PokemonListApiResponse.PokemonListEntry::name)
+                .filter(this::isSelectableSpecies)
                 .distinct()
                 .sorted(Comparator.naturalOrder())
                 .toList();
@@ -235,6 +253,16 @@ public class PokeApiService {
         } catch (IllegalArgumentException ex) {
             return false;
         }
+    }
+
+    private boolean isSelectableSpecies(String speciesName) {
+        if (speciesName == null || speciesName.isBlank()) {
+            return false;
+        }
+        if (speciesName.contains("-mega")) {
+            return SUPPORTED_MEGA_SPECIES.contains(speciesName);
+        }
+        return true;
     }
 
     private PokemonApiResponse fetchPokemon(String speciesName) {

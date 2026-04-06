@@ -195,6 +195,23 @@
   const speciesMoveCache = {};
   let speciesOptionsCache = null;
   const API_BASE = window.location.origin;
+  const MEGA_STONE_BY_SPECIES = {
+    'venusaur-mega': 'VENUSAURITE',
+    'charizard-mega-x': 'CHARIZARDITE_X',
+    'charizard-mega-y': 'CHARIZARDITE_Y',
+    'blastoise-mega': 'BLASTOISINITE',
+    'alakazam-mega': 'ALAKAZITE',
+    'gardevoir-mega': 'GARDEVOIRITE',
+    'mawile-mega': 'MAWILITE',
+    'lucario-mega': 'LUCARIONITE',
+    'scizor-mega': 'SCIZORITE',
+    'tyranitar-mega': 'TYRANITARITE',
+    'garchomp-mega': 'GARCHOMPITE',
+    'salamence-mega': 'SALAMENCITE',
+    'sableye-mega': 'SABLENITE',
+    'metagross-mega': 'METAGROSSITE'
+  };
+  const MEGA_RAYQUAZA_SPECIES = 'rayquaza-mega';
 
   const DEFAULT_TEAM = [
     { species:'garchomp', level:100, nature:'JOLLY', item:'CHOICE_SCARF', ability:'ROUGH_SKIN', evs:{hp:0,attack:252,defense:4,specialAttack:0,specialDefense:0,speed:252}, ivs:{hp:31,attack:31,defense:31,specialAttack:31,specialDefense:31,speed:31}, moves:['earthquake','outrage','stone-edge','swords-dance'] },
@@ -330,11 +347,38 @@
     speciesList.innerHTML = species.map(name => `<option value="${name}"></option>`).join('');
   }
 
+  function syncMegaItemConstraint(side, index) {
+    const speciesInput = document.getElementById(`${side}_species_${index}`);
+    const itemSelect = document.getElementById(`${side}_item_${index}`);
+    if (!speciesInput || !itemSelect) return;
+
+    const species = normalizeSpeciesName(speciesInput.value);
+    const lockedMegaStone = MEGA_STONE_BY_SPECIES[species];
+
+    if (lockedMegaStone) {
+      itemSelect.value = lockedMegaStone;
+      itemSelect.disabled = true;
+      itemSelect.title = 'Mega species automatically use their required Mega Stone.';
+      return;
+    }
+
+    if (species === MEGA_RAYQUAZA_SPECIES) {
+      if (!itemSelect.value) itemSelect.value = 'NONE';
+      itemSelect.disabled = false;
+      itemSelect.title = 'Mega Rayquaza is the exception and does not require a Mega Stone.';
+      return;
+    }
+
+    itemSelect.disabled = false;
+    itemSelect.title = '';
+  }
+
   function wireSpeciesAbilitySync(side, index, defaultAbility) {
     const speciesInput = document.getElementById(`${side}_species_${index}`);
     if (!speciesInput) return;
 
     const syncSpeciesData = () => {
+      syncMegaItemConstraint(side, index);
       refreshAbilityOptions(side, index);
       refreshMoveOptions(side, index);
     };
@@ -347,6 +391,7 @@
       }
     });
 
+    syncMegaItemConstraint(side, index);
     refreshAbilityOptions(side, index, defaultAbility);
     refreshMoveOptions(side, index);
     refreshSpeciesOptions(side, index);
