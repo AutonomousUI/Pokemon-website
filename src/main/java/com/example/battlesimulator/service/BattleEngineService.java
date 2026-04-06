@@ -230,7 +230,6 @@ public class BattleEngineService {
             log.add("Player 1 sent out " + incoming.getNickname() + "!");
             if (prev != null && !prev.isFainted()) {
                 log.add("(" + prev.getNickname() + " was withdrawn)");
-                prev.setChoiceLock(null);
                 applyOnSwitchOutAbility(prev, log);
             }
             tryApplyMegaEvolution(incoming, log);
@@ -243,7 +242,6 @@ public class BattleEngineService {
             log.add("Player 2 sent out " + incoming.getNickname() + "!");
             if (prev != null && !prev.isFainted()) {
                 log.add("(" + prev.getNickname() + " was withdrawn)");
-                prev.setChoiceLock(null);
                 applyOnSwitchOutAbility(prev, log);
             }
             tryApplyMegaEvolution(incoming, log);
@@ -312,7 +310,6 @@ public class BattleEngineService {
             if (p1Prev != null) applyOnSwitchOutAbility(p1Prev, log);
             session.setPlayer1ActiveIndex(idx);
             p1 = session.getPlayer1Active();
-            p1.setChoiceLock(null);
             log.add("Player 1 switched to " + p1.getNickname() + "!");
             tryApplyMegaEvolution(p1, log);
             applyOnSwitchInAbility(p1, session.getPlayer2Active(), session, log);
@@ -324,7 +321,6 @@ public class BattleEngineService {
             if (p2Prev != null) applyOnSwitchOutAbility(p2Prev, log);
             session.setPlayer2ActiveIndex(idx);
             p2 = session.getPlayer2Active();
-            p2.setChoiceLock(null);
             log.add("Player 2 switched to " + p2.getNickname() + "!");
             tryApplyMegaEvolution(p2, log);
             applyOnSwitchInAbility(p2, session.getPlayer1Active(), session, log);
@@ -541,9 +537,15 @@ public class BattleEngineService {
             if (attacker.getChoiceLock() == null) {
                 attacker.setChoiceLock(move.id());
             } else if (!attacker.getChoiceLock().equals(move.id())) {
-                log.add(attacker.getNickname() + " is locked into " + attacker.getChoiceLock()
-                        + " by its " + attackerItem.getDisplayName() + " and can't use " + move.name() + "!");
-                return;
+                Move lockedMove = pokeApiService.getMove(attacker.getChoiceLock());
+                if (lockedMove == null) {
+                    log.add(attacker.getNickname() + " is locked into " + attacker.getChoiceLock()
+                            + " by its " + attackerItem.getDisplayName() + " and can't use " + move.name() + "!");
+                    return;
+                }
+                log.add(attacker.getNickname() + " is locked into " + lockedMove.id()
+                        + " by its " + attackerItem.getDisplayName() + " and is forced to keep using it!");
+                move = lockedMove;
             }
         }
 
@@ -1993,6 +1995,7 @@ public class BattleEngineService {
         withdrawing.setChargingMove(null);
         withdrawing.setNeedsForcedSwitch(false);
         withdrawing.setBatonPassPending(false);
+        withdrawing.setChoiceLock(null);
         withdrawing.setType1(withdrawing.getBaseType1());
         withdrawing.setType2(withdrawing.getBaseType2());
         withdrawing.setTruantLoafing(false);
