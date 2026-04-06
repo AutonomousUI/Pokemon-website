@@ -78,6 +78,10 @@
 </head>
 <body>
 <div class="page">
+  <div class="actions" style="margin-bottom: 12px;">
+    <div id="authSummary" class="muted" style="margin-right:auto;"></div>
+    <button class="btn btn-ghost" onclick="logout()">Log Out</button>
+  </div>
   <h1>Pokemon Battle Simulator</h1>
   <p class="subtitle">Build both teams in one tab for AI mode, or keep the old PvP flow.</p>
 
@@ -113,6 +117,34 @@
             <option value="leon">Leon</option>
           </select>
         </div>
+      </div>
+    </div>
+
+    <div class="card" id="pvpLobbyCard" style="display:none;">
+      <div class="card-title">PvP Lobby</div>
+      <div class="row">
+        <div class="field" style="flex:1 1 240px;">
+          <label>Search Username</label>
+          <input id="pvpSearch" placeholder="Search online users" oninput="refreshLobbyState()">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field" style="flex:1 1 280px;">
+          <label>Active Match</label>
+          <div id="activeMatchBox" class="muted">No accepted challenge yet.</div>
+        </div>
+        <div class="field" style="flex:1 1 280px;">
+          <label>Incoming Challenges</label>
+          <div id="incomingChallenges" class="muted">No incoming challenges.</div>
+        </div>
+        <div class="field" style="flex:1 1 280px;">
+          <label>Outgoing Challenges</label>
+          <div id="outgoingChallenges" class="muted">No outgoing challenges.</div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Online Players</label>
+        <div id="onlineUsers" class="muted">No online users found.</div>
       </div>
     </div>
 
@@ -183,10 +215,15 @@
 </div>
 
 <script>
+  const AUTH_TOKEN_KEY = 'battleAuthToken';
   let stompClient = null;
   let battleId = '';
   let playerId = 'player1';
   let battleMode = 'ai';
+  let authToken = localStorage.getItem(AUTH_TOKEN_KEY) || '';
+  let currentUsername = '';
+  let activePvpMatch = null;
+  let lobbyPollInterval = null;
   let myTeam = [];
   let currentSnapshot = null;
   let mustSwitch = false;
@@ -264,6 +301,11 @@
     return JSON.parse(JSON.stringify(value));
   }
 
+  async function authFetch(path, options = {}) {
+    const headers = Object.assign({}, options.headers || {}, authToken ? { 'X-Auth-Token': authToken } : {});
+    return fetch(`${API_BASE}${path}`, { ...options, headers });
+  }
+
   function showStatus(message, kind) {
     const bar = document.getElementById('statusBar');
     bar.textContent = message;
@@ -297,11 +339,144 @@
 
   function updateModeUI() {
     battleMode = document.getElementById('battleMode').value;
-    document.getElementById('playerPicker').style.display = battleMode === 'ai' ? 'none' : 'flex';
+    document.getElementById('playerPicker').style.display = 'none';
     document.getElementById('aiTrainerPicker').style.display = battleMode === 'ai' ? 'flex' : 'none';
     document.getElementById('opponentSetupCard').style.display = battleMode === 'ai' ? 'block' : 'none';
+    document.getElementById('pvpLobbyCard').style.display = battleMode === 'pvp' ? 'block' : 'none';
     document.getElementById('opponentSetupTitle').textContent = battleMode === 'ai' ? 'AI Team' : 'Opponent Team';
-    document.getElementById('team2Title').textContent = battleMode === 'ai' ? 'AI' : 'Player 2';
+    document.getElementById('team2Title').textContent = battleMode === 'ai' ? 'AI' : (activePvpMatch ? activePvpMatch.opponentUsername : 'Opponent');
+    document.getElementById('battleId').readOnly = battleMode === 'pvp';
+    if (battleMode === 'pvp') {
+      refreshLobbyState();
+    }
+  }
+
+  async function ensureAuthenticated() {
+    if (!authToken) {
+      window.location.href = '/login.html';
+      return false;
+    }
+    const response = await authFetch('/api/auth/me');
+    if (!response.ok) {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      window.location.href = '/login.html';
+      return false;
+    }
+    const data = await response.json();
+    currentUsername = data.username || '';
+    document.getElementById('authSummary').textContent = currentUsername ? `Signed in as ${currentUsername}` : '';
+    startLobbyPolling();
+    return true;
+  }
+
+  function startLobbyPolling() {
+    if (lobbyPollInterval) return;
+    lobbyPollInterval = setInterval(() => {
+      if (battleMode === 'pvp' && document.getElementById('setup').style.display !== 'none') {
+        refreshLobbyState();
+      } else {
+        authFetch('/api/auth/me').catch(() => {});
+      }
+    }, 5000);
+  }
+
+  async function refreshLobbyState() {
+    if (!authToken || battleMode !== 'pvp') return;
+    const query = encodeURIComponent(document.getElementById('pvpSearch')?.value || '');
+    const response = await authFetch(`/api/lobby/state?query=${query}`);
+    if (response.status === 401) {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      window.location.href = '/login.html';
+      return;
+    }
+    if (!response.ok) return;
+    const data = await response.json();
+    currentUsername = data.username || currentUsername;
+    document.getElementById('authSummary').textContent = currentUsername ? `Signed in as ${currentUsername}` : '';
+    activePvpMatch = data.activeMatch || null;
+    renderOnlineUsers(data.onlineUsers || []);
+    renderChallenges('incomingChallenges', data.incomingChallenges || [], true);
+    renderChallenges('outgoingChallenges', data.outgoingChallenges || [], false);
+    renderActiveMatch(data.activeMatch);
+    if (activePvpMatch) {
+      document.getElementById('battleId').value = activePvpMatch.battleId;
+      document.getElementById('team2Title').textContent = activePvpMatch.opponentUsername;
+    } else if (battleMode === 'pvp') {
+      document.getElementById('battleId').value = '';
+      document.getElementById('team2Title').textContent = 'Opponent';
+    }
+  }
+
+  function renderOnlineUsers(usernames) {
+    const container = document.getElementById('onlineUsers');
+    if (!usernames.length) {
+      container.innerHTML = '<span class="muted">No online users found.</span>';
+      return;
+    }
+    container.innerHTML = usernames.map(username => `
+      <div class="row" style="margin-bottom:6px;">
+        <div class="muted" style="flex:1 1 auto;">${username}</div>
+        <button class="btn btn-ghost" onclick="sendChallenge('${username}')">Challenge</button>
+      </div>
+    `).join('');
+  }
+
+  function renderChallenges(containerId, challenges, incoming) {
+    const container = document.getElementById(containerId);
+    if (!challenges.length) {
+      container.innerHTML = `<span class="muted">No ${incoming ? 'incoming' : 'outgoing'} challenges.</span>`;
+      return;
+    }
+    container.innerHTML = challenges.map(challenge => `
+      <div class="row" style="margin-bottom:6px;">
+        <div class="muted" style="flex:1 1 auto;">
+          ${incoming ? challenge.fromUsername : challenge.toUsername} (${challenge.status})
+        </div>
+        ${incoming && challenge.status === 'PENDING' ? `
+          <button class="btn btn-ghost" onclick="respondToChallenge('${challenge.id}', true)">Accept</button>
+          <button class="btn btn-ghost" onclick="respondToChallenge('${challenge.id}', false)">Reject</button>
+        ` : ''}
+      </div>
+    `).join('');
+  }
+
+  function renderActiveMatch(match) {
+    const container = document.getElementById('activeMatchBox');
+    if (!match) {
+      container.innerHTML = 'No accepted challenge yet.';
+      return;
+    }
+    container.innerHTML = `
+      <div><strong>${match.opponentUsername}</strong></div>
+      <div class="muted">Battle room: ${match.battleId}</div>
+      <div class="muted">You are ${match.yourPlayerId}</div>
+    `;
+  }
+
+  async function sendChallenge(username) {
+    const response = await authFetch('/api/lobby/challenge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetUsername: username })
+    });
+    const data = await response.json().catch(() => ({}));
+    showStatus(data.message || (response.ok ? 'Challenge sent.' : 'Could not send challenge.'), response.ok ? 'success' : 'warn');
+    refreshLobbyState();
+  }
+
+  async function respondToChallenge(challengeId, accept) {
+    const response = await authFetch(`/api/lobby/challenge/${challengeId}/${accept ? 'accept' : 'reject'}`, {
+      method: 'POST'
+    });
+    const data = await response.json().catch(() => ({}));
+    showStatus(data.message || (response.ok ? 'Updated challenge.' : 'Could not update challenge.'), response.ok ? 'success' : 'warn');
+    refreshLobbyState();
+  }
+
+  async function logout() {
+    try { await authFetch('/api/auth/logout', { method: 'POST' }); } catch (error) {}
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    window.location.href = '/login.html';
   }
 
   function optionMarkup(values, selected) {
@@ -589,8 +764,18 @@
 
   async function lockInTeam() {
     battleMode = document.getElementById('battleMode').value;
-    battleId = document.getElementById('battleId').value.trim();
-    playerId = battleMode === 'ai' ? 'player1' : document.getElementById('playerId').value;
+    if (battleMode === 'pvp') {
+      if (!activePvpMatch) {
+        showStatus('Accept a username challenge before starting a PvP battle.', 'warn');
+        return;
+      }
+      battleId = activePvpMatch.battleId;
+      playerId = activePvpMatch.yourPlayerId;
+      document.getElementById('battleId').value = battleId;
+    } else {
+      battleId = document.getElementById('battleId').value.trim();
+      playerId = 'player1';
+    }
 
     if (!battleId) {
       showStatus('Enter a room id first.', 'warn');
@@ -623,7 +808,7 @@
         stompClient.subscribe('/topic/battle/' + battleId, message => handleUpdate(JSON.parse(message.body)));
         document.getElementById('setup').style.display = 'none';
         document.getElementById('arena').style.display = 'block';
-        logLine(`Connected to ${battleId} as ${playerId}`);
+        logLine(`Connected to ${battleId} as ${battleMode === 'pvp' ? currentUsername : playerId}`);
         await fetchSnapshot();
         resolve();
       }, reject);
@@ -781,7 +966,7 @@
     document.getElementById('waitingMsg').style.display = 'block';
   }
 
-  function backToHomePage() {
+  async function backToHomePage() {
     if (pendingSnapshotRefresh) {
       clearTimeout(pendingSnapshotRefresh);
       pendingSnapshotRefresh = null;
@@ -805,12 +990,28 @@
     document.getElementById('statusBar').textContent = '';
     document.getElementById('log').value = 'Awaiting battle...';
     closeSwitchModal();
+    if (battleMode === 'pvp' && authToken) {
+      try {
+        await authFetch('/api/lobby/match/leave', { method: 'POST' });
+      } catch (error) {}
+      activePvpMatch = null;
+      document.getElementById('team2Title').textContent = 'Opponent';
+      refreshLobbyState();
+    }
   }
 
-  renderTeamBuilder('playerSlots', 'player', deepClone(DEFAULT_TEAM));
-  renderTeamBuilder('opponentSlots', 'opponent', currentAiTrainerTeam());
-  updateModeUI();
-  document.getElementById('log').value = 'Awaiting battle...';
+  async function bootstrap() {
+    const authenticated = await ensureAuthenticated();
+    if (!authenticated) {
+      return;
+    }
+    renderTeamBuilder('playerSlots', 'player', deepClone(DEFAULT_TEAM));
+    renderTeamBuilder('opponentSlots', 'opponent', currentAiTrainerTeam());
+    updateModeUI();
+    document.getElementById('log').value = 'Awaiting battle...';
+  }
+
+  bootstrap();
 </script>
 </body>
 </html>
