@@ -12,7 +12,7 @@ Set these in your Render web service:
 1. Push this project to GitHub.
 2. In Render, create a new **Web Service** from this repository.
 3. Use the included `render.yaml` blueprint, or configure these commands manually:
-   Build Command: `./mvnw -DskipTests clean package`
+   Build Command: `chmod +x mvnw && ./mvnw -DskipTests clean package`
    Start Command: `java -jar target/battlesimulator-0.0.1-SNAPSHOT.jar`
 4. Add the environment variables above.
 5. Deploy.

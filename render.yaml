@@ -3,7 +3,7 @@ services:
     name: pokemon-website
     runtime: java
     plan: free
-    buildCommand: ./mvnw -DskipTests clean package
+    buildCommand: chmod +x mvnw && ./mvnw -DskipTests clean package
     startCommand: java -jar target/battlesimulator-0.0.1-SNAPSHOT.jar
     envVars:
       - key: GROQ_API_KEY
