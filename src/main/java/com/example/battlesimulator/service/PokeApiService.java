@@ -43,6 +43,7 @@ public class PokeApiService {
     );
 
     private static final Map<String, String> MOVE_ALIASES = Map.ofEntries(
+            Map.entry("aurasphere", "aura-sphere"),
             Map.entry("softboiled", "soft-boiled"),
             Map.entry("doubleedge", "double-edge"),
             Map.entry("solarbeam", "solar-beam"),
