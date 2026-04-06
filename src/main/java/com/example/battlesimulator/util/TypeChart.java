@@ -38,7 +38,7 @@ public class TypeChart {
             };
             case ICE -> switch (defenseType) {
                 case GRASS, GROUND, FLYING, DRAGON -> 2.0;
-                case FIRE, WATER, ICE, STEEL -> 0.5;
+                case FIRE, WATER, ICE, ROCK, STEEL -> 0.5;
                 default -> 1.0;
             };
             case FIGHTING -> switch (defenseType) {
