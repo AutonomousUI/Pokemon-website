@@ -134,6 +134,9 @@
 
   <div id="arena">
     <div id="winnerBanner" class="winner"></div>
+    <div class="actions" id="postBattleActions" style="display:none;">
+      <button class="btn btn-ghost" onclick="backToHomePage()">Back to Home Page</button>
+    </div>
 
     <div class="battle-top">
       <div class="active-box">
@@ -713,6 +716,7 @@
       const banner = document.getElementById('winnerBanner');
       banner.style.display = 'block';
       banner.textContent = data.winnerId === playerId ? 'You win!' : 'You lose!';
+      document.getElementById('postBattleActions').style.display = 'flex';
       document.getElementById('moveGrid').innerHTML = '';
       document.getElementById('waitingMsg').style.display = 'none';
       document.getElementById('statusBar').className = 'status';
@@ -720,6 +724,9 @@
       closeSwitchModal();
       return;
     }
+
+    document.getElementById('winnerBanner').style.display = 'none';
+    document.getElementById('postBattleActions').style.display = 'none';
 
     const waitingForMe = (data.phase === 'WAITING_FOR_SWITCH_P1' && playerId === 'player1')
       || (data.phase === 'WAITING_FOR_SWITCH_P2' && playerId === 'player2')
@@ -772,6 +779,32 @@
     stompClient.send('/app/action', {}, JSON.stringify({ battleId, playerId, actionType: 'SWITCH', targetId: null, switchIndex: index }));
     closeSwitchModal();
     document.getElementById('waitingMsg').style.display = 'block';
+  }
+
+  function backToHomePage() {
+    if (pendingSnapshotRefresh) {
+      clearTimeout(pendingSnapshotRefresh);
+      pendingSnapshotRefresh = null;
+    }
+    if (stompClient) {
+      try { stompClient.disconnect(() => {}); } catch (error) {}
+      stompClient = null;
+    }
+    currentSnapshot = null;
+    mustSwitch = false;
+    myTeam = [];
+    slotMoveCache.player1 = {};
+    slotMoveCache.player2 = {};
+    document.getElementById('arena').style.display = 'none';
+    document.getElementById('setup').style.display = 'block';
+    document.getElementById('winnerBanner').style.display = 'none';
+    document.getElementById('postBattleActions').style.display = 'none';
+    document.getElementById('moveGrid').innerHTML = '';
+    document.getElementById('waitingMsg').style.display = 'none';
+    document.getElementById('statusBar').className = 'status';
+    document.getElementById('statusBar').textContent = '';
+    document.getElementById('log').value = 'Awaiting battle...';
+    closeSwitchModal();
   }
 
   renderTeamBuilder('playerSlots', 'player', deepClone(DEFAULT_TEAM));
