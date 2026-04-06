@@ -104,6 +104,22 @@ public class PokeApiService {
         return validAbilities.isEmpty() ? List.of(Ability.NONE.name()) : validAbilities;
     }
 
+    @Cacheable("pokemonMoveOptions")
+    public List<String> getValidMoves(String speciesName) {
+        PokemonApiResponse apiResponse = fetchPokemon(speciesName);
+
+        if (apiResponse == null) {
+            throw new IllegalArgumentException("Pokemon not found: " + speciesName);
+        }
+
+        return apiResponse.moves().stream()
+                .map(PokemonApiResponse.MoveSlot::move)
+                .map(PokemonApiResponse.MoveDetail::name)
+                .distinct()
+                .sorted(Comparator.naturalOrder())
+                .toList();
+    }
+
     public void applyMegaEvolution(BattlePokemon pokemon, String megaSpeciesName, com.example.battlesimulator.model.enums.Ability megaAbility) {
         PokemonApiResponse apiResponse = fetchPokemon(megaSpeciesName);
 

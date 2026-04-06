@@ -192,6 +192,7 @@
   ];
   const FALLBACK_ABILITIES = ['NONE'];
   const speciesAbilityCache = {};
+  const speciesMoveCache = {};
   const API_BASE = window.location.origin;
 
   const DEFAULT_TEAM = [
@@ -264,6 +265,22 @@
     }
   }
 
+  async function fetchSpeciesMoves(speciesName) {
+    const species = normalizeSpeciesName(speciesName);
+    if (!species) return [];
+    if (speciesMoveCache[species]) return speciesMoveCache[species];
+
+    try {
+      const response = await fetch(`${API_BASE}/api/battle/species/${encodeURIComponent(species)}/moves`);
+      if (!response.ok) throw new Error('species moves unavailable');
+      const moves = await response.json();
+      speciesMoveCache[species] = Array.isArray(moves) ? moves : [];
+      return speciesMoveCache[species];
+    } catch (error) {
+      return [];
+    }
+  }
+
   async function refreshAbilityOptions(side, index, preferredAbility) {
     const speciesInput = document.getElementById(`${side}_species_${index}`);
     const abilitySelect = document.getElementById(`${side}_ability_${index}`);
@@ -281,13 +298,25 @@
     abilitySelect.innerHTML = optionMarkup(abilities, nextValue);
   }
 
+  async function refreshMoveOptions(side, index) {
+    const speciesInput = document.getElementById(`${side}_species_${index}`);
+    const moveList = document.getElementById(`${side}_move_list_${index}`);
+    if (!speciesInput || !moveList) return;
+
+    const moves = await fetchSpeciesMoves(speciesInput.value);
+    moveList.innerHTML = moves.map(move => `<option value="${move}"></option>`).join('');
+  }
+
   function wireSpeciesAbilitySync(side, index, defaultAbility) {
     const speciesInput = document.getElementById(`${side}_species_${index}`);
     if (!speciesInput) return;
 
-    const syncAbilities = () => refreshAbilityOptions(side, index);
-    speciesInput.addEventListener('change', syncAbilities);
-    speciesInput.addEventListener('blur', syncAbilities);
+    const syncSpeciesData = () => {
+      refreshAbilityOptions(side, index);
+      refreshMoveOptions(side, index);
+    };
+    speciesInput.addEventListener('change', syncSpeciesData);
+    speciesInput.addEventListener('blur', syncSpeciesData);
     speciesInput.addEventListener('input', () => {
       const slotTitle = speciesInput.closest('.slot')?.querySelector('.slot-title');
       if (slotTitle) {
@@ -296,6 +325,7 @@
     });
 
     refreshAbilityOptions(side, index, defaultAbility);
+    refreshMoveOptions(side, index);
   }
 
   function renderTeamBuilder(containerId, side, defaults) {
@@ -347,10 +377,11 @@
             ${[0,1,2,3].map(moveIndex => `
               <div class="field">
                 <label>Move ${moveIndex + 1}</label>
-                <input id="${side}_move_${index}_${moveIndex}" value="${slot.moves[moveIndex] || ''}">
+                <input id="${side}_move_${index}_${moveIndex}" list="${side}_move_list_${index}" value="${slot.moves[moveIndex] || ''}" placeholder="Start typing a move">
               </div>
             `).join('')}
           </div>
+          <datalist id="${side}_move_list_${index}"></datalist>
         </div>
       `);
       wireSpeciesAbilitySync(side, index, slot.ability);

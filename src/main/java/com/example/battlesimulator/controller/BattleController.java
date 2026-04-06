@@ -51,6 +51,15 @@ public class BattleController {
         }
     }
 
+    @GetMapping("/species/{speciesName}/moves")
+    public ResponseEntity<List<String>> getSpeciesMoves(@PathVariable String speciesName) {
+        try {
+            return ResponseEntity.ok(pokeApiService.getValidMoves(speciesName));
+        } catch (Exception e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
     @MessageMapping("/action")
     public void handleAction(PlayerAction action) {
         battleEngineService.handleAction(action);
