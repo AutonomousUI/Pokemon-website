@@ -254,7 +254,7 @@ public class GroqBattleAiService {
 
         Move forcedMove = getChoiceLockedMove(active);
         if (forcedMove != null) {
-            double forcedScore = heuristicMoveScore(forcedMove, defender);
+            double forcedScore = heuristicMoveScore(forcedMove, active, defender);
             if (shouldSwitchInsteadOfLockedMove(active, defender, forcedScore, battleId, aiPlayerId, session)) {
                 return chooseFallbackSwitch(battleId, aiPlayerId, session);
             }
@@ -263,10 +263,14 @@ public class GroqBattleAiService {
 
         Move bestMove = active.getMoves().stream()
                 .filter(move -> move != null)
-                .max(Comparator.comparingDouble(move -> heuristicMoveScore(move, defender)))
+                .max(Comparator.comparingDouble(move -> heuristicMoveScore(move, active, defender)))
                 .orElse(null);
 
         if (bestMove == null) {
+            return chooseFallbackSwitch(battleId, aiPlayerId, session);
+        }
+        double bestMoveScore = heuristicMoveScore(bestMove, active, defender);
+        if (shouldSwitchAgainstSetup(active, defender, bestMove, bestMoveScore, battleId, aiPlayerId, session)) {
             return chooseFallbackSwitch(battleId, aiPlayerId, session);
         }
         return new PlayerAction(battleId, aiPlayerId, "MOVE", bestMove.id(), null);
@@ -307,7 +311,37 @@ public class GroqBattleAiService {
         return forcedScore <= 0.0 || switchScore > forcedScore + 40.0;
     }
 
-    private double heuristicMoveScore(Move move, BattlePokemon defender) {
+    private boolean shouldSwitchAgainstSetup(BattlePokemon active, BattlePokemon defender,
+                                             Move bestMove, double bestMoveScore, String battleId,
+                                             String aiPlayerId, BattleSession session) {
+        if (defender == null || bestMove == null || defender.isFainted()) {
+            return false;
+        }
+        int offensiveBoost = Math.max(defender.getAttackStage(), defender.getSpecialAttackStage());
+        int speedBoost = defender.getSpeedStage();
+        boolean defenderSnowballing = offensiveBoost >= 2 || speedBoost >= 2
+                || (Math.max(0, offensiveBoost) + Math.max(0, speedBoost)) >= 3;
+        if (!defenderSnowballing) {
+            return false;
+        }
+
+        PlayerAction bestSwitch = chooseFallbackSwitch(battleId, aiPlayerId, session);
+        if (!"SWITCH".equalsIgnoreCase(bestSwitch.actionType()) || bestSwitch.switchIndex() == null) {
+            return false;
+        }
+
+        List<BattlePokemon> team = "player1".equals(aiPlayerId) ? session.getPlayer1Team() : session.getPlayer2Team();
+        BattlePokemon switchTarget = team.get(bestSwitch.switchIndex());
+        if (switchTarget == null || switchTarget == active || switchTarget.isFainted()) {
+            return false;
+        }
+
+        double switchScore = heuristicSwitchScore(switchTarget, defender);
+        boolean weakIntoBoostedTarget = bestMove.category() == MoveCategory.STATUS || bestMoveScore < 90.0;
+        return weakIntoBoostedTarget && switchScore > bestMoveScore + 25.0;
+    }
+
+    private double heuristicMoveScore(Move move, BattlePokemon attacker, BattlePokemon defender) {
         if (move.category() == MoveCategory.STATUS) {
             return move.priority() > 0 ? 25 : 5;
         }
@@ -319,7 +353,11 @@ public class GroqBattleAiService {
             multiplier = TypeChart.getMultiplier(move.type(), defender.getType1())
                     * TypeChart.getMultiplier(move.type(), t2);
         }
-        return power * accuracy * multiplier + (move.priority() * 20.0);
+        double stab = 1.0;
+        if (attacker != null && (attacker.getType1() == move.type() || attacker.getType2() == move.type())) {
+            stab = 1.5;
+        }
+        return power * accuracy * multiplier * stab + (move.priority() * 20.0);
     }
 
     private double heuristicSwitchScore(BattlePokemon candidate, BattlePokemon opponent) {
@@ -332,7 +370,7 @@ public class GroqBattleAiService {
         if (opponent != null) {
             offensivePressure = candidate.getMoves().stream()
                     .filter(move -> move != null)
-                    .mapToDouble(move -> heuristicMoveScore(move, opponent))
+                    .mapToDouble(move -> heuristicMoveScore(move, candidate, opponent))
                     .max()
                     .orElse(0.0);
 
