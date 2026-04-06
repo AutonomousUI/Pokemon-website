@@ -2,6 +2,7 @@ package com.example.battlesimulator.service;
 
 import com.example.battlesimulator.dto.pokeapi.MoveApiResponse;
 import com.example.battlesimulator.dto.pokeapi.PokemonApiResponse;
+import com.example.battlesimulator.dto.pokeapi.PokemonListApiResponse;
 import com.example.battlesimulator.model.BattlePokemon;
 import com.example.battlesimulator.model.Move;
 import com.example.battlesimulator.model.StatBlock;
@@ -102,6 +103,24 @@ public class PokeApiService {
                 .toList();
 
         return validAbilities.isEmpty() ? List.of(Ability.NONE.name()) : validAbilities;
+    }
+
+    @Cacheable("pokemonSpeciesOptions")
+    public List<String> getAvailableSpecies() {
+        PokemonListApiResponse apiResponse = restClient.get()
+                .uri("/pokemon?limit=2000")
+                .retrieve()
+                .body(PokemonListApiResponse.class);
+
+        if (apiResponse == null || apiResponse.results() == null) {
+            return List.of();
+        }
+
+        return apiResponse.results().stream()
+                .map(PokemonListApiResponse.PokemonListEntry::name)
+                .distinct()
+                .sorted(Comparator.naturalOrder())
+                .toList();
     }
 
     @Cacheable("pokemonMoveOptions")

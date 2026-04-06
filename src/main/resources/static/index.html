@@ -193,6 +193,7 @@
   const FALLBACK_ABILITIES = ['NONE'];
   const speciesAbilityCache = {};
   const speciesMoveCache = {};
+  let speciesOptionsCache = null;
   const API_BASE = window.location.origin;
 
   const DEFAULT_TEAM = [
@@ -265,6 +266,20 @@
     }
   }
 
+  async function fetchSpeciesOptions() {
+    if (speciesOptionsCache) return speciesOptionsCache;
+
+    try {
+      const response = await fetch(`${API_BASE}/api/battle/species`);
+      if (!response.ok) throw new Error('species list unavailable');
+      const species = await response.json();
+      speciesOptionsCache = Array.isArray(species) ? species : [];
+      return speciesOptionsCache;
+    } catch (error) {
+      return [];
+    }
+  }
+
   async function fetchSpeciesMoves(speciesName) {
     const species = normalizeSpeciesName(speciesName);
     if (!species) return [];
@@ -307,6 +322,14 @@
     moveList.innerHTML = moves.map(move => `<option value="${move}"></option>`).join('');
   }
 
+  async function refreshSpeciesOptions(side, index) {
+    const speciesList = document.getElementById(`${side}_species_list_${index}`);
+    if (!speciesList) return;
+
+    const species = await fetchSpeciesOptions();
+    speciesList.innerHTML = species.map(name => `<option value="${name}"></option>`).join('');
+  }
+
   function wireSpeciesAbilitySync(side, index, defaultAbility) {
     const speciesInput = document.getElementById(`${side}_species_${index}`);
     if (!speciesInput) return;
@@ -326,6 +349,7 @@
 
     refreshAbilityOptions(side, index, defaultAbility);
     refreshMoveOptions(side, index);
+    refreshSpeciesOptions(side, index);
   }
 
   function renderTeamBuilder(containerId, side, defaults) {
@@ -341,7 +365,7 @@
           <div class="row">
             <div class="field" style="flex:1 1 180px">
               <label>Species</label>
-              <input id="${side}_species_${index}" value="${slot.species}">
+              <input id="${side}_species_${index}" list="${side}_species_list_${index}" value="${slot.species}" placeholder="Start typing a Pokemon">
             </div>
             <div class="field">
               <label>Level</label>
@@ -382,6 +406,7 @@
             `).join('')}
           </div>
           <datalist id="${side}_move_list_${index}"></datalist>
+          <datalist id="${side}_species_list_${index}"></datalist>
         </div>
       `);
       wireSpeciesAbilitySync(side, index, slot.ability);
