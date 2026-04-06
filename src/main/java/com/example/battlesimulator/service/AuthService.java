@@ -42,7 +42,7 @@ public class AuthService {
         user.setUsername(username);
         user.setPasswordHash(hash(password));
         userAccountRepository.save(user);
-        return createSession(username, "Account created.");
+        return new AuthResponse(true, "Account created. Please log in.", username, null);
     }
 
     public AuthResponse login(AuthRequest request) {

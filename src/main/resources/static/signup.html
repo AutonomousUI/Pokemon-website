@@ -137,8 +137,11 @@
         setStatus(data.message || 'Signup failed.', 'warn');
         return;
       }
-      localStorage.setItem(AUTH_TOKEN_KEY, data.token);
-      window.location.href = '/';
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      setStatus(data.message || 'Account created. Redirecting to login...', 'success');
+      setTimeout(() => {
+        window.location.href = '/login.html';
+      }, 800);
     });
 
     checkExistingSession();
