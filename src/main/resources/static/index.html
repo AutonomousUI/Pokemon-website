@@ -240,13 +240,16 @@
 
   function spriteUrl(name, back) {
     if (!name) return '';
-    const species = (name || '')
+    let species = (name || '')
       .toLowerCase()
       .replace(/^p[12]-/, '')
       .replace(/['’.]/g, '')
       .replace(/\s+/g, '')
       .replace(/♀/g, 'f')
       .replace(/♂/g, 'm');
+    if (species === 'greninja-battle-bond') {
+      species = 'greninja-ash';
+    }
     const folder = back ? 'ani-back' : 'ani';
     return `https://play.pokemonshowdown.com/sprites/${folder}/${species}.gif`;
   }
