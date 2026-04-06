@@ -16,6 +16,7 @@ public enum HeldItem {
     MUSCLE_BAND("Muscle Band",        "Boosts physical moves by 1.1×."),
     WISE_GLASSES("Wise Glasses",      "Boosts special moves by 1.1×."),
     LIGHT_BALL("Light Ball",          "Doubles Attack and Sp. Atk for Pikachu only."),
+    LEEK("Leek",                      "Raises critical-hit ratio for Farfetch'd and Sirfetch'd."),
 
     // ── Berries ───────────────────────────────────────────────────────────
     SITRUS_BERRY("Sitrus Berry",      "Restores 25% max HP when HP drops to 50% or below."),

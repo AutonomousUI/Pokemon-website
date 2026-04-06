@@ -158,6 +158,12 @@ public class DamageCalculatorService {
 
         int critStage = attacker.getCritStageBonus();
         if (isHighCritMove(move)) critStage++;
+        if (attacker.getHeldItem() == HeldItem.LEEK && attacker.getSpeciesId() != null) {
+            String species = attacker.getSpeciesId().toLowerCase();
+            if (species.contains("farfetch") || species.contains("sirfetch")) {
+                critStage++;
+            }
+        }
         double critThreshold = switch (Math.min(critStage, 3)) {
             case 0 -> 1.0 / 24.0;
             case 1 -> 1.0 / 8.0;
