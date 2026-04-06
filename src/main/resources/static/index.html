@@ -187,6 +187,7 @@
   let myTeam = [];
   let currentSnapshot = null;
   let mustSwitch = false;
+  let pendingSnapshotRefresh = null;
   const TEAM_SIZE = 6;
   const slotMoveCache = { player1: {}, player2: {} };
 
@@ -674,6 +675,9 @@
     const isChoiceLocked = Boolean(lockedMove) && ['CHOICE_BAND', 'CHOICE_SPECS', 'CHOICE_SCARF'].includes(active.heldItem);
     if (isChoiceLocked) {
       showStatus(`Choice item lock: ${active.nickname} must keep using ${lockedMove} until it switches out.`, 'info');
+    } else {
+      document.getElementById('statusBar').className = 'status';
+      document.getElementById('statusBar').textContent = '';
     }
 
     grid.innerHTML = moves.map(move => `
@@ -682,6 +686,10 @@
   }
 
   function handleUpdate(data) {
+    if (pendingSnapshotRefresh) {
+      clearTimeout(pendingSnapshotRefresh);
+      pendingSnapshotRefresh = null;
+    }
     currentSnapshot = data;
     if (data.combatLog && data.combatLog.length) {
       data.combatLog.forEach(logLine);
@@ -707,6 +715,8 @@
       banner.textContent = data.winnerId === playerId ? 'You win!' : 'You lose!';
       document.getElementById('moveGrid').innerHTML = '';
       document.getElementById('waitingMsg').style.display = 'none';
+      document.getElementById('statusBar').className = 'status';
+      document.getElementById('statusBar').textContent = '';
       closeSwitchModal();
       return;
     }
@@ -730,6 +740,9 @@
     } else {
       document.getElementById('moveGrid').innerHTML = '';
       document.getElementById('waitingMsg').style.display = 'block';
+      if (battleMode === 'ai') {
+        pendingSnapshotRefresh = setTimeout(() => fetchSnapshot(), 700);
+      }
     }
   }
 
