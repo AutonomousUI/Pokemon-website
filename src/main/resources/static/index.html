@@ -347,6 +347,15 @@
     speciesList.innerHTML = species.map(name => `<option value="${name}"></option>`).join('');
   }
 
+  function clearMovesForSlot(side, index) {
+    for (let moveIndex = 0; moveIndex < 4; moveIndex++) {
+      const moveInput = document.getElementById(`${side}_move_${index}_${moveIndex}`);
+      if (moveInput) {
+        moveInput.value = '';
+      }
+    }
+  }
+
   function syncMegaItemConstraint(side, index) {
     const speciesInput = document.getElementById(`${side}_species_${index}`);
     const itemSelect = document.getElementById(`${side}_item_${index}`);
@@ -376,8 +385,14 @@
   function wireSpeciesAbilitySync(side, index, defaultAbility) {
     const speciesInput = document.getElementById(`${side}_species_${index}`);
     if (!speciesInput) return;
+    let lastSpecies = normalizeSpeciesName(speciesInput.value);
 
     const syncSpeciesData = () => {
+      const currentSpecies = normalizeSpeciesName(speciesInput.value);
+      if (currentSpecies !== lastSpecies) {
+        clearMovesForSlot(side, index);
+        lastSpecies = currentSpecies;
+      }
       syncMegaItemConstraint(side, index);
       refreshAbilityOptions(side, index);
       refreshMoveOptions(side, index);
