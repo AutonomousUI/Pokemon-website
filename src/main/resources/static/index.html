@@ -617,8 +617,14 @@
       return;
     }
 
+    const lockedMove = active.choiceLock ? active.choiceLock.toLowerCase() : null;
+    const isChoiceLocked = Boolean(lockedMove) && ['CHOICE_BAND', 'CHOICE_SPECS', 'CHOICE_SCARF'].includes(active.heldItem);
+    if (isChoiceLocked) {
+      showStatus(`Choice item lock: ${active.nickname} must keep using ${lockedMove} until it switches out.`, 'info');
+    }
+
     grid.innerHTML = moves.map(move => `
-      <button class="btn btn-ghost" onclick="sendMove('${move}')">${move}</button>
+      <button class="btn btn-ghost" onclick="sendMove('${move}')" ${isChoiceLocked && move.toLowerCase() !== lockedMove ? 'disabled' : ''}>${move}</button>
     `).join('') + '<button class="btn btn-ghost" onclick="openSwitchModal(true)">Switch Pokemon</button>';
   }
 

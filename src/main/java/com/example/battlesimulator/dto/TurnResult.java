@@ -32,6 +32,7 @@ public record TurnResult(
             String status,
             String heldItem,
             String ability,
+            String choiceLock,
             boolean confused,
             boolean taunted
     ) {
@@ -42,6 +43,7 @@ public record TurnResult(
                     p.getStatusCondition().name(),
                     p.getHeldItem().name(),
                     p.getAbility() != null ? p.getAbility().name() : "NONE",
+                    p.getChoiceLock(),
                     p.isConfused(),
                     p.isTaunted());
         }
