@@ -72,7 +72,7 @@ public class TypeChart {
             };
             case BUG -> switch (defenseType) {
                 case GRASS, PSYCHIC, DARK -> 2.0;
-                case FIRE, FIGHTING, FLYING, GHOST, STEEL, FAIRY -> 0.5;
+                case FIRE, FIGHTING, FLYING, POISON, GHOST, STEEL, FAIRY -> 0.5;
                 default -> 1.0;
             };
             case ROCK -> switch (defenseType) {
