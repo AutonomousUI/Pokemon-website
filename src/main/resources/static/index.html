@@ -281,6 +281,9 @@
       .replace(/\s+/g, '')
       .replace(/♀/g, 'f')
       .replace(/♂/g, 'm');
+    if (species === 'ash-pikachu') {
+      species = 'pikachu-original';
+    }
     if (species === 'greninja-battle-bond') {
       species = 'greninja-ash';
     }

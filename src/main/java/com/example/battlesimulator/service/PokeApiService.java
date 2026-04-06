@@ -22,6 +22,8 @@ import java.util.Map;
 
 @Service
 public class PokeApiService {
+    private static final String ASH_PIKACHU = "ash-pikachu";
+    private static final String BASE_PIKACHU = "pikachu";
     private static final java.util.Set<String> SUPPORTED_MEGA_SPECIES = java.util.Set.of(
             "venusaur-mega",
             "charizard-mega-x",
@@ -62,6 +64,10 @@ public class PokeApiService {
     }
 
     public BattlePokemon createBattlePokemon(String speciesName, int level, StatBlock ivs, StatBlock evs, Nature nature) {
+        if (isAshPikachu(speciesName)) {
+            return createAshPikachu(level, ivs, evs, nature);
+        }
+
         PokemonApiResponse apiResponse = fetchPokemon(speciesName);
 
         if (apiResponse == null) throw new IllegalArgumentException("Pokemon not found: " + speciesName);
@@ -104,6 +110,10 @@ public class PokeApiService {
 
     @Cacheable("pokemonAbilityOptions")
     public List<String> getValidAbilities(String speciesName) {
+        if (isAshPikachu(speciesName)) {
+            return getValidAbilities(BASE_PIKACHU);
+        }
+
         PokemonApiResponse apiResponse = fetchPokemon(speciesName);
 
         if (apiResponse == null) {
@@ -133,16 +143,25 @@ public class PokeApiService {
             return List.of();
         }
 
-        return apiResponse.results().stream()
+        java.util.List<String> species = new java.util.ArrayList<>(apiResponse.results().stream()
                 .map(PokemonListApiResponse.PokemonListEntry::name)
                 .filter(this::isSelectableSpecies)
                 .distinct()
                 .sorted(Comparator.naturalOrder())
-                .toList();
+                .toList());
+        if (!species.contains(ASH_PIKACHU)) {
+            species.add(ASH_PIKACHU);
+            species.sort(Comparator.naturalOrder());
+        }
+        return species;
     }
 
     @Cacheable("pokemonMoveOptions")
     public List<String> getValidMoves(String speciesName) {
+        if (isAshPikachu(speciesName)) {
+            return getValidMoves(BASE_PIKACHU);
+        }
+
         PokemonApiResponse apiResponse = fetchPokemon(speciesName);
 
         if (apiResponse == null) {
@@ -259,10 +278,53 @@ public class PokeApiService {
         if (speciesName == null || speciesName.isBlank()) {
             return false;
         }
+        if (isAshPikachu(speciesName)) {
+            return true;
+        }
         if (speciesName.contains("-mega")) {
             return SUPPORTED_MEGA_SPECIES.contains(speciesName);
         }
         return true;
+    }
+
+    private boolean isAshPikachu(String speciesName) {
+        return ASH_PIKACHU.equalsIgnoreCase(speciesName);
+    }
+
+    private BattlePokemon createAshPikachu(int level, StatBlock ivs, StatBlock evs, Nature nature) {
+        Type type1 = Type.ELECTRIC;
+        Type type2 = Type.NONE;
+
+        int baseHp = 45;
+        int baseAtk = 80;
+        int baseDef = 50;
+        int baseSpA = 75;
+        int baseSpD = 60;
+        int baseSpe = 120;
+
+        int finalHp = calculateHpStat(baseHp, ivs.hp(), evs.hp(), level);
+
+        return BattlePokemon.builder()
+                .speciesId(ASH_PIKACHU)
+                .originalSpeciesId(ASH_PIKACHU)
+                .nickname(ASH_PIKACHU)
+                .level(level)
+                .nature(nature)
+                .ivs(ivs)
+                .evs(evs)
+                .type1(type1)
+                .type2(type2)
+                .baseType1(type1)
+                .baseType2(type2)
+                .maxHp(finalHp)
+                .currentHp(finalHp)
+                .attack(calculateOtherStat(baseAtk, ivs.attack(), evs.attack(), level, nature, Stat.ATTACK))
+                .defense(calculateOtherStat(baseDef, ivs.defense(), evs.defense(), level, nature, Stat.DEFENSE))
+                .specialAttack(calculateOtherStat(baseSpA, ivs.specialAttack(), evs.specialAttack(), level, nature, Stat.SPECIAL_ATTACK))
+                .specialDefense(calculateOtherStat(baseSpD, ivs.specialDefense(), evs.specialDefense(), level, nature, Stat.SPECIAL_DEFENSE))
+                .speed(calculateOtherStat(baseSpe, ivs.speed(), evs.speed(), level, nature, Stat.SPEED))
+                .moves(new ArrayList<>())
+                .build();
     }
 
     private PokemonApiResponse fetchPokemon(String speciesName) {
