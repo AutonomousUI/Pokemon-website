@@ -92,10 +92,6 @@
       <div class="card-title">Battle Setup</div>
       <div class="row">
         <div class="field">
-          <label>Room ID</label>
-          <input id="battleId" value="battle-room-1">
-        </div>
-        <div class="field">
           <label>Mode</label>
           <select id="battleMode" onchange="updateModeUI()">
             <option value="ai">Player vs AI</option>
@@ -119,6 +115,7 @@
         </div>
       </div>
     </div>
+    <input id="battleId" type="hidden" value="">
 
     <div class="card" id="pvpLobbyCard" style="display:none;">
       <div class="card-title">PvP Lobby</div>
@@ -301,6 +298,13 @@
     return JSON.parse(JSON.stringify(value));
   }
 
+  function createBattleRoomId(prefix) {
+    if (window.crypto?.randomUUID) {
+      return `${prefix}-${window.crypto.randomUUID()}`;
+    }
+    return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+  }
+
   async function authFetch(path, options = {}) {
     const headers = Object.assign({}, options.headers || {}, authToken ? { 'X-Auth-Token': authToken } : {});
     return fetch(`${API_BASE}${path}`, { ...options, headers });
@@ -345,7 +349,6 @@
     document.getElementById('pvpLobbyCard').style.display = battleMode === 'pvp' ? 'block' : 'none';
     document.getElementById('opponentSetupTitle').textContent = battleMode === 'ai' ? 'AI Team' : 'Opponent Team';
     document.getElementById('team2Title').textContent = battleMode === 'ai' ? 'AI' : (activePvpMatch ? activePvpMatch.opponentUsername : 'Opponent');
-    document.getElementById('battleId').readOnly = battleMode === 'pvp';
     if (battleMode === 'pvp') {
       refreshLobbyState();
     }
@@ -773,13 +776,9 @@
       playerId = activePvpMatch.yourPlayerId;
       document.getElementById('battleId').value = battleId;
     } else {
-      battleId = document.getElementById('battleId').value.trim();
+      battleId = createBattleRoomId('ai');
+      document.getElementById('battleId').value = battleId;
       playerId = 'player1';
-    }
-
-    if (!battleId) {
-      showStatus('Enter a room id first.', 'warn');
-      return;
     }
 
     try {
