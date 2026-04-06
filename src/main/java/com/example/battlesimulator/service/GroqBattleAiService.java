@@ -252,6 +252,15 @@ public class GroqBattleAiService {
             return chooseFallbackSwitch(battleId, aiPlayerId, session);
         }
 
+        Move forcedMove = getChoiceLockedMove(active);
+        if (forcedMove != null) {
+            double forcedScore = heuristicMoveScore(forcedMove, defender);
+            if (shouldSwitchInsteadOfLockedMove(active, defender, forcedScore, battleId, aiPlayerId, session)) {
+                return chooseFallbackSwitch(battleId, aiPlayerId, session);
+            }
+            return new PlayerAction(battleId, aiPlayerId, "MOVE", forcedMove.id(), null);
+        }
+
         Move bestMove = active.getMoves().stream()
                 .filter(move -> move != null)
                 .max(Comparator.comparingDouble(move -> heuristicMoveScore(move, defender)))
@@ -261,6 +270,41 @@ public class GroqBattleAiService {
             return chooseFallbackSwitch(battleId, aiPlayerId, session);
         }
         return new PlayerAction(battleId, aiPlayerId, "MOVE", bestMove.id(), null);
+    }
+
+    private Move getChoiceLockedMove(BattlePokemon active) {
+        if (active.getChoiceLock() == null || active.getHeldItem() == null) {
+            return null;
+        }
+        return switch (active.getHeldItem()) {
+            case CHOICE_BAND, CHOICE_SPECS, CHOICE_SCARF -> active.getMoves().stream()
+                    .filter(move -> move != null && move.id().equalsIgnoreCase(active.getChoiceLock()))
+                    .findFirst()
+                    .orElse(null);
+            default -> null;
+        };
+    }
+
+    private boolean shouldSwitchInsteadOfLockedMove(BattlePokemon active, BattlePokemon defender,
+                                                    double forcedScore, String battleId,
+                                                    String aiPlayerId, BattleSession session) {
+        if (defender == null) {
+            return false;
+        }
+
+        PlayerAction bestSwitch = chooseFallbackSwitch(battleId, aiPlayerId, session);
+        if (!"SWITCH".equalsIgnoreCase(bestSwitch.actionType()) || bestSwitch.switchIndex() == null) {
+            return false;
+        }
+
+        List<BattlePokemon> team = "player1".equals(aiPlayerId) ? session.getPlayer1Team() : session.getPlayer2Team();
+        BattlePokemon switchTarget = team.get(bestSwitch.switchIndex());
+        if (switchTarget == null || switchTarget == active || switchTarget.isFainted()) {
+            return false;
+        }
+
+        double switchScore = heuristicSwitchScore(switchTarget, defender);
+        return forcedScore <= 0.0 || switchScore > forcedScore + 40.0;
     }
 
     private double heuristicMoveScore(Move move, BattlePokemon defender) {
