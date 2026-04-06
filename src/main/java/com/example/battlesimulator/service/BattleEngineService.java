@@ -1732,11 +1732,10 @@ public class BattleEngineService {
             default -> false;
         };
         if (aiMustSwitch) {
-            int nextAliveIndex = "player1".equals(aiPlayerId)
-                    ? session.getNextAliveIndex(1)
-                    : session.getNextAliveIndex(2);
-            if (nextAliveIndex >= 0) {
-                handleAction(new PlayerAction(battleId, aiPlayerId, "SWITCH", null, nextAliveIndex));
+            PlayerAction switchAction = groqBattleAiService.chooseForcedSwitchAction(battleId, aiPlayerId, session);
+            if (switchAction != null && "SWITCH".equalsIgnoreCase(switchAction.actionType())
+                    && switchAction.switchIndex() != null && switchAction.switchIndex() >= 0) {
+                handleAction(switchAction);
             }
         }
     }

@@ -83,6 +83,10 @@ public class GroqBattleAiService {
         }
     }
 
+    public PlayerAction chooseForcedSwitchAction(String battleId, String aiPlayerId, BattleSession session) {
+        return chooseFallbackSwitch(battleId, aiPlayerId, session);
+    }
+
     private String buildPrompt(BattleSession session, String aiPlayerId) throws Exception {
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("aiPlayerId", aiPlayerId);
@@ -218,11 +222,25 @@ public class GroqBattleAiService {
     private PlayerAction chooseFallbackSwitch(String battleId, String aiPlayerId, BattleSession session) {
         List<BattlePokemon> team = "player1".equals(aiPlayerId) ? session.getPlayer1Team() : session.getPlayer2Team();
         BattlePokemon active = "player1".equals(aiPlayerId) ? session.getPlayer1Active() : session.getPlayer2Active();
+        BattlePokemon opponent = "player1".equals(aiPlayerId) ? session.getPlayer2Active() : session.getPlayer1Active();
+
+        Integer bestIndex = null;
+        double bestScore = Double.NEGATIVE_INFINITY;
         for (int i = 0; i < team.size(); i++) {
             BattlePokemon candidate = team.get(i);
-            if (candidate != null && !candidate.isFainted() && candidate != active) {
-                return new PlayerAction(battleId, aiPlayerId, "SWITCH", null, i);
+            if (candidate == null || candidate.isFainted() || candidate == active) {
+                continue;
             }
+
+            double score = heuristicSwitchScore(candidate, opponent);
+            if (score > bestScore) {
+                bestScore = score;
+                bestIndex = i;
+            }
+        }
+
+        if (bestIndex != null) {
+            return new PlayerAction(battleId, aiPlayerId, "SWITCH", null, bestIndex);
         }
         return new PlayerAction(battleId, aiPlayerId, "MOVE", active != null && !active.getMoves().isEmpty() ? active.getMoves().get(0).id() : null, null);
     }
@@ -258,5 +276,38 @@ public class GroqBattleAiService {
                     * TypeChart.getMultiplier(move.type(), t2);
         }
         return power * accuracy * multiplier + (move.priority() * 20.0);
+    }
+
+    private double heuristicSwitchScore(BattlePokemon candidate, BattlePokemon opponent) {
+        double hpRatio = candidate.getMaxHp() > 0 ? (double) candidate.getCurrentHp() / candidate.getMaxHp() : 0.0;
+        double bulk = candidate.getDefense() + candidate.getSpecialDefense();
+        double speed = candidate.getSpeed();
+        double offensivePressure = 0.0;
+        double defensiveSafety = 1.0;
+
+        if (opponent != null) {
+            offensivePressure = candidate.getMoves().stream()
+                    .filter(move -> move != null)
+                    .mapToDouble(move -> heuristicMoveScore(move, opponent))
+                    .max()
+                    .orElse(0.0);
+
+            defensiveSafety = 0.0;
+            for (Move opponentMove : opponent.getMoves()) {
+                if (opponentMove == null) {
+                    continue;
+                }
+                Type candidateType2 = candidate.getType2() == null ? Type.NONE : candidate.getType2();
+                double multiplier = TypeChart.getMultiplier(opponentMove.type(), candidate.getType1())
+                        * TypeChart.getMultiplier(opponentMove.type(), candidateType2);
+                defensiveSafety = Math.max(defensiveSafety, multiplier);
+            }
+        }
+
+        return offensivePressure
+                + (hpRatio * 140.0)
+                + (bulk * 0.12)
+                + (speed * 0.08)
+                - (defensiveSafety * 90.0);
     }
 }
