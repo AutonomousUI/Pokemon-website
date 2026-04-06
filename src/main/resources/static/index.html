@@ -1,0 +1,592 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Pokemon Battle Simulator</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #181c28;
+      --card-2: #22283a;
+      --border: #323a55;
+      --text: #eef2ff;
+      --muted: #96a0bb;
+      --accent: #5ea2ff;
+      --accent-2: #ff7b6b;
+      --good: #59d98e;
+      --warn: #f6c453;
+      --bad: #ff6b6b;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Segoe UI, sans-serif; background: linear-gradient(180deg, #0b0f18, #121827 45%, #0f1117); color: var(--text); }
+    .page { max-width: 1240px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { margin: 0 0 6px; text-align: center; color: var(--accent); }
+    .subtitle { text-align: center; color: var(--muted); margin: 0 0 24px; }
+    .card { background: rgba(24, 28, 40, 0.96); border: 1px solid var(--border); border-radius: 16px; padding: 18px; margin-bottom: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.22); }
+    .card-title { margin-bottom: 12px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    .field { display: flex; flex-direction: column; gap: 5px; min-width: 110px; }
+    .field label { font-size: 12px; color: var(--muted); }
+    input, select, textarea { background: var(--card-2); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 9px 10px; font: inherit; }
+    textarea { width: 100%; min-height: 220px; resize: vertical; }
+    .btn { border: 0; border-radius: 10px; padding: 10px 16px; font-weight: 700; cursor: pointer; }
+    .btn-primary { background: var(--accent); color: #08111f; }
+    .btn-ghost { background: var(--card-2); color: var(--text); border: 1px solid var(--border); }
+    .btn:disabled { opacity: .45; cursor: default; }
+    .actions { display: flex; justify-content: flex-end; gap: 10px; }
+    .teams-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .slots { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    .slot { background: rgba(34,40,58,.9); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+    .slot-top { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+    .slot-num { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--accent); color: #08111f; font-weight: 800; }
+    .slot-title { font-weight: 700; }
+    .stat-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+    .move-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    #arena { display: none; }
+    .arena-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .team-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid transparent; border-radius: 10px; margin-bottom: 6px; background: rgba(255,255,255,.02); }
+    .team-row.active { border-color: var(--accent); background: rgba(94,162,255,.10); }
+    .team-row.fainted { opacity: .45; }
+    .sprite { width: 40px; height: 40px; image-rendering: pixelated; }
+    .hp { flex: 1; }
+    .hp-bar { height: 8px; border-radius: 999px; background: #0e1320; overflow: hidden; margin-bottom: 4px; }
+    .hp-fill { height: 100%; }
+    .meta { font-size: 12px; color: var(--muted); }
+    .battle-top { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .active-box { text-align: center; background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 16px; padding: 16px; }
+    .active-box img { width: 110px; height: 110px; image-rendering: pixelated; }
+    .active-name { font-weight: 800; margin-top: 8px; }
+    .winner { display: none; text-align: center; font-size: 26px; font-weight: 800; color: var(--warn); margin-bottom: 16px; }
+    .status { margin-bottom: 14px; padding: 10px 12px; border-radius: 10px; display: none; }
+    .status.info { display: block; background: rgba(94,162,255,.10); color: var(--accent); border: 1px solid rgba(94,162,255,.25); }
+    .status.success { display: block; background: rgba(89,217,142,.10); color: var(--good); border: 1px solid rgba(89,217,142,.25); }
+    .status.warn { display: block; background: rgba(246,196,83,.10); color: var(--warn); border: 1px solid rgba(246,196,83,.25); }
+    .switch-modal { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: none; align-items: center; justify-content: center; padding: 16px; }
+    .switch-modal.open { display: flex; }
+    .switch-card { width: 360px; max-width: 100%; }
+    .switch-list { display: flex; flex-direction: column; gap: 8px; }
+    .switch-btn { width: 100%; text-align: left; display: flex; justify-content: space-between; }
+    .muted { color: var(--muted); }
+    @media (max-width: 900px) {
+      .teams-grid, .arena-grid, .battle-top { grid-template-columns: 1fr; }
+      .stat-grid { grid-template-columns: repeat(3, 1fr); }
+      .move-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+  <h1>Pokemon Battle Simulator</h1>
+  <p class="subtitle">Build both teams in one tab for AI mode, or keep the old PvP flow.</p>
+
+  <div id="statusBar" class="status"></div>
+
+  <div id="setup">
+    <div class="card">
+      <div class="card-title">Battle Setup</div>
+      <div class="row">
+        <div class="field">
+          <label>Room ID</label>
+          <input id="battleId" value="battle-room-1">
+        </div>
+        <div class="field">
+          <label>Mode</label>
+          <select id="battleMode" onchange="updateModeUI()">
+            <option value="ai">Player vs AI</option>
+            <option value="pvp">Player vs Player</option>
+          </select>
+        </div>
+        <div class="field" id="playerPicker">
+          <label>You Are</label>
+          <select id="playerId">
+            <option value="player1">Player 1</option>
+            <option value="player2">Player 2</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="teams-grid">
+      <div class="card">
+        <div class="card-title">Your Team</div>
+        <div id="playerSlots" class="slots"></div>
+      </div>
+      <div class="card" id="opponentSetupCard">
+        <div class="card-title" id="opponentSetupTitle">AI Team</div>
+        <div id="opponentSlots" class="slots"></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" onclick="lockInTeam()">Start Battle</button>
+    </div>
+  </div>
+
+  <div id="arena">
+    <div id="winnerBanner" class="winner"></div>
+
+    <div class="battle-top">
+      <div class="active-box">
+        <img id="p1ActiveSprite" alt="">
+        <div id="p1ActiveName" class="active-name">Player 1</div>
+        <div id="p1ActiveHp" class="meta"></div>
+      </div>
+      <div class="active-box">
+        <img id="p2ActiveSprite" alt="">
+        <div id="p2ActiveName" class="active-name">Player 2</div>
+        <div id="p2ActiveHp" class="meta"></div>
+      </div>
+    </div>
+
+    <div class="arena-grid">
+      <div class="card">
+        <div class="card-title">Player 1</div>
+        <div id="team1Rows"></div>
+      </div>
+      <div class="card">
+        <div class="card-title" id="team2Title">Player 2</div>
+        <div id="team2Rows"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Your Actions</div>
+      <div id="moveGrid" class="move-grid"></div>
+      <p id="waitingMsg" class="muted" style="display:none; margin-top: 10px;">Waiting for the other side...</p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Battle Log</div>
+      <textarea id="log" readonly></textarea>
+    </div>
+  </div>
+</div>
+
+<div id="switchModal" class="switch-modal">
+  <div class="card switch-card">
+    <div class="card-title">Choose a Switch</div>
+    <div id="switchList" class="switch-list"></div>
+  </div>
+</div>
+
+<script>
+  let stompClient = null;
+  let battleId = '';
+  let playerId = 'player1';
+  let battleMode = 'ai';
+  let myTeam = [];
+  let currentSnapshot = null;
+  let mustSwitch = false;
+  const TEAM_SIZE = 6;
+  const slotMoveCache = { player1: {}, player2: {} };
+
+  const NATURES = ['HARDY','ADAMANT','MODEST','TIMID','JOLLY','BOLD','CALM','CAREFUL','IMPISH','BRAVE'];
+  const HELD_ITEMS = [
+    'NONE','CHOICE_BAND','CHOICE_SPECS','CHOICE_SCARF','LIFE_ORB','EXPERT_BELT','MUSCLE_BAND','WISE_GLASSES','LIGHT_BALL',
+    'LEFTOVERS','FOCUS_SASH','ASSAULT_VEST','ROCKY_HELMET','EVIOLITE','HEAVY_DUTY_BOOTS','SITRUS_BERRY','ORAN_BERRY','LUM_BERRY',
+    'BLACK_SLUDGE','FLAME_ORB','TOXIC_ORB','IRON_BALL','WEAKNESS_POLICY','AIR_BALLOON','POWER_HERB',
+    'VENUSAURITE','CHARIZARDITE_X','CHARIZARDITE_Y','BLASTOISINITE','ALAKAZITE','GARDEVOIRITE','MAWILITE','LUCARIONITE',
+    'SCIZORITE','TYRANITARITE','GARCHOMPITE','SALAMENCITE','SABLENITE','METAGROSSITE'
+  ];
+  const FALLBACK_ABILITIES = ['NONE'];
+  const speciesAbilityCache = {};
+  const API_BASE = window.location.origin;
+
+  const DEFAULT_TEAM = [
+    { species:'garchomp', level:100, nature:'JOLLY', item:'CHOICE_SCARF', ability:'ROUGH_SKIN', evs:{hp:0,attack:252,defense:4,specialAttack:0,specialDefense:0,speed:252}, ivs:{hp:31,attack:31,defense:31,specialAttack:31,specialDefense:31,speed:31}, moves:['earthquake','outrage','stone-edge','swords-dance'] },
+    { species:'dragonite', level:100, nature:'ADAMANT', item:'CHOICE_BAND', ability:'MULTISCALE', evs:{hp:0,attack:252,defense:4,specialAttack:0,specialDefense:0,speed:252}, ivs:{hp:31,attack:31,defense:31,specialAttack:31,specialDefense:31,speed:31}, moves:['extreme-speed','earthquake','fire-punch','dragon-dance'] },
+    { species:'tyranitar', level:100, nature:'ADAMANT', item:'LEFTOVERS', ability:'SAND_STREAM', evs:{hp:0,attack:252,defense:4,specialAttack:0,specialDefense:0,speed:252}, ivs:{hp:31,attack:31,defense:31,specialAttack:31,specialDefense:31,speed:31}, moves:['stone-edge','crunch','earthquake','dragon-dance'] },
+    { species:'blissey', level:100, nature:'CALM', item:'LEFTOVERS', ability:'NATURAL_CURE', evs:{hp:252,attack:0,defense:252,specialAttack:0,specialDefense:4,speed:0}, ivs:{hp:31,attack:31,defense:31,specialAttack:31,specialDefense:31,speed:31}, moves:['ice-beam','thunderbolt','thunder-wave','soft-boiled'] },
+    { species:'starmie', level:100, nature:'TIMID', item:'LIFE_ORB', ability:'NATURAL_CURE', evs:{hp:0,attack:0,defense:4,specialAttack:252,specialDefense:0,speed:252}, ivs:{hp:31,attack:31,defense:31,specialAttack:31,specialDefense:31,speed:31}, moves:['surf','ice-beam','thunderbolt','recover'] },
+    { species:'metagross', level:100, nature:'ADAMANT', item:'ASSAULT_VEST', ability:'CLEAR_BODY', evs:{hp:0,attack:252,defense:4,specialAttack:0,specialDefense:0,speed:252}, ivs:{hp:31,attack:31,defense:31,specialAttack:31,specialDefense:31,speed:31}, moves:['meteor-mash','earthquake','ice-punch','bullet-punch'] }
+  ];
+
+  function deepClone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function showStatus(message, kind) {
+    const bar = document.getElementById('statusBar');
+    bar.textContent = message;
+    bar.className = 'status ' + kind;
+  }
+
+  function logLine(message) {
+    const log = document.getElementById('log');
+    log.value += (log.value ? '\n' : '') + message;
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function spriteUrl(name, back) {
+    if (!name) return '';
+    const species = (name || '')
+      .toLowerCase()
+      .replace(/^p[12]-/, '')
+      .replace(/['’.]/g, '')
+      .replace(/\s+/g, '')
+      .replace(/♀/g, 'f')
+      .replace(/♂/g, 'm');
+    const folder = back ? 'ani-back' : 'ani';
+    return `https://play.pokemonshowdown.com/sprites/${folder}/${species}.gif`;
+  }
+
+  function updateModeUI() {
+    battleMode = document.getElementById('battleMode').value;
+    document.getElementById('playerPicker').style.display = battleMode === 'ai' ? 'none' : 'flex';
+    document.getElementById('opponentSetupCard').style.display = battleMode === 'ai' ? 'block' : 'none';
+    document.getElementById('opponentSetupTitle').textContent = battleMode === 'ai' ? 'AI Team' : 'Opponent Team';
+    document.getElementById('team2Title').textContent = battleMode === 'ai' ? 'AI' : 'Player 2';
+  }
+
+  function optionMarkup(values, selected) {
+    return values.map(value => `<option value="${value}" ${value === selected ? 'selected' : ''}>${value}</option>`).join('');
+  }
+
+  function normalizeSpeciesName(name) {
+    return (name || '').trim().toLowerCase();
+  }
+
+  async function fetchSpeciesAbilities(speciesName) {
+    const species = normalizeSpeciesName(speciesName);
+    if (!species) return FALLBACK_ABILITIES;
+    if (speciesAbilityCache[species]) return speciesAbilityCache[species];
+
+    try {
+      const response = await fetch(`${API_BASE}/api/battle/species/${encodeURIComponent(species)}/abilities`);
+      if (!response.ok) throw new Error('species abilities unavailable');
+      const abilities = await response.json();
+      speciesAbilityCache[species] = Array.isArray(abilities) && abilities.length ? abilities : FALLBACK_ABILITIES;
+      return speciesAbilityCache[species];
+    } catch (error) {
+      return FALLBACK_ABILITIES;
+    }
+  }
+
+  async function refreshAbilityOptions(side, index, preferredAbility) {
+    const speciesInput = document.getElementById(`${side}_species_${index}`);
+    const abilitySelect = document.getElementById(`${side}_ability_${index}`);
+    const slotTitle = speciesInput?.closest('.slot')?.querySelector('.slot-title');
+    if (!speciesInput || !abilitySelect) return;
+
+    const species = normalizeSpeciesName(speciesInput.value);
+    if (slotTitle) {
+      slotTitle.textContent = species || `slot ${index + 1}`;
+    }
+
+    const abilities = await fetchSpeciesAbilities(species);
+    const currentValue = preferredAbility || abilitySelect.value;
+    const nextValue = abilities.includes(currentValue) ? currentValue : abilities[0];
+    abilitySelect.innerHTML = optionMarkup(abilities, nextValue);
+  }
+
+  function wireSpeciesAbilitySync(side, index, defaultAbility) {
+    const speciesInput = document.getElementById(`${side}_species_${index}`);
+    if (!speciesInput) return;
+
+    const syncAbilities = () => refreshAbilityOptions(side, index);
+    speciesInput.addEventListener('change', syncAbilities);
+    speciesInput.addEventListener('blur', syncAbilities);
+    speciesInput.addEventListener('input', () => {
+      const slotTitle = speciesInput.closest('.slot')?.querySelector('.slot-title');
+      if (slotTitle) {
+        slotTitle.textContent = normalizeSpeciesName(speciesInput.value) || `slot ${index + 1}`;
+      }
+    });
+
+    refreshAbilityOptions(side, index, defaultAbility);
+  }
+
+  function renderTeamBuilder(containerId, side, defaults) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = '';
+    defaults.forEach((slot, index) => {
+      container.insertAdjacentHTML('beforeend', `
+        <div class="slot">
+          <div class="slot-top">
+            <div class="slot-num">${index + 1}</div>
+            <div class="slot-title">${slot.species}</div>
+          </div>
+          <div class="row">
+            <div class="field" style="flex:1 1 180px">
+              <label>Species</label>
+              <input id="${side}_species_${index}" value="${slot.species}">
+            </div>
+            <div class="field">
+              <label>Level</label>
+              <input id="${side}_level_${index}" type="number" min="1" max="100" value="${slot.level}">
+            </div>
+            <div class="field">
+              <label>Nature</label>
+              <select id="${side}_nature_${index}">${optionMarkup(NATURES, slot.nature)}</select>
+            </div>
+            <div class="field">
+              <label>Item</label>
+              <select id="${side}_item_${index}">${optionMarkup(HELD_ITEMS, slot.item)}</select>
+            </div>
+            <div class="field">
+              <label>Ability</label>
+              <select id="${side}_ability_${index}">${optionMarkup(FALLBACK_ABILITIES, slot.ability)}</select>
+            </div>
+          </div>
+          <div class="card-title">EVs</div>
+          <div class="stat-grid">
+            ${['hp','attack','defense','specialAttack','specialDefense','speed'].map(stat => `
+              <div class="field"><label>${stat}</label><input id="${side}_ev_${stat}_${index}" type="number" value="${slot.evs[stat]}"></div>
+            `).join('')}
+          </div>
+          <div class="card-title">IVs</div>
+          <div class="stat-grid">
+            ${['hp','attack','defense','specialAttack','specialDefense','speed'].map(stat => `
+              <div class="field"><label>${stat}</label><input id="${side}_iv_${stat}_${index}" type="number" value="${slot.ivs[stat]}"></div>
+            `).join('')}
+          </div>
+          <div class="card-title">Moves</div>
+          <div class="move-grid">
+            ${[0,1,2,3].map(moveIndex => `
+              <div class="field">
+                <label>Move ${moveIndex + 1}</label>
+                <input id="${side}_move_${index}_${moveIndex}" value="${slot.moves[moveIndex] || ''}">
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `);
+      wireSpeciesAbilitySync(side, index, slot.ability);
+    });
+  }
+
+  function readStatGroup(side, kind, slot, stat) {
+    return parseInt(document.getElementById(`${side}_${kind}_${stat}_${slot}`).value || '0', 10);
+  }
+
+  function collectTeam(side, serverPlayerId, aiControlled) {
+    const payloads = [];
+    for (let i = 0; i < TEAM_SIZE; i++) {
+      const moves = [0,1,2,3].map(moveIndex => document.getElementById(`${side}_move_${i}_${moveIndex}`).value.trim().toLowerCase()).filter(Boolean);
+      slotMoveCache[serverPlayerId][i] = moves;
+      payloads.push({
+        battleId,
+        playerId: serverPlayerId,
+        aiControlled,
+        pokemonSlot: i,
+        speciesName: document.getElementById(`${side}_species_${i}`).value.trim().toLowerCase(),
+        level: parseInt(document.getElementById(`${side}_level_${i}`).value || '100', 10),
+        nature: document.getElementById(`${side}_nature_${i}`).value,
+        heldItem: document.getElementById(`${side}_item_${i}`).value,
+        ability: document.getElementById(`${side}_ability_${i}`).value,
+        ivs: {
+          hp: readStatGroup(side, 'iv', i, 'hp'),
+          attack: readStatGroup(side, 'iv', i, 'attack'),
+          defense: readStatGroup(side, 'iv', i, 'defense'),
+          specialAttack: readStatGroup(side, 'iv', i, 'specialAttack'),
+          specialDefense: readStatGroup(side, 'iv', i, 'specialDefense'),
+          speed: readStatGroup(side, 'iv', i, 'speed')
+        },
+        evs: {
+          hp: readStatGroup(side, 'ev', i, 'hp'),
+          attack: readStatGroup(side, 'ev', i, 'attack'),
+          defense: readStatGroup(side, 'ev', i, 'defense'),
+          specialAttack: readStatGroup(side, 'ev', i, 'specialAttack'),
+          specialDefense: readStatGroup(side, 'ev', i, 'specialDefense'),
+          speed: readStatGroup(side, 'ev', i, 'speed')
+        },
+        moveNames: moves
+      });
+    }
+    return payloads;
+  }
+
+  async function postTeam(payloads) {
+    for (const payload of payloads) {
+      const response = await fetch(`${API_BASE}/api/battle/setup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) {
+        throw new Error(`setup failed for ${payload.playerId} slot ${payload.pokemonSlot + 1}`);
+      }
+    }
+  }
+
+  async function lockInTeam() {
+    battleMode = document.getElementById('battleMode').value;
+    battleId = document.getElementById('battleId').value.trim();
+    playerId = battleMode === 'ai' ? 'player1' : document.getElementById('playerId').value;
+
+    if (!battleId) {
+      showStatus('Enter a room id first.', 'warn');
+      return;
+    }
+
+    try {
+      showStatus('Registering teams with the server...', 'info');
+      await postTeam(collectTeam('player', playerId, false));
+      if (battleMode === 'ai') {
+        await postTeam(collectTeam('opponent', 'player2', true));
+      }
+      await connectWS();
+      showStatus('Battle ready.', 'success');
+    } catch (error) {
+      showStatus('Could not register teams. Check the app logs and your server connection.', 'warn');
+    }
+  }
+
+  function connectWS() {
+    return new Promise((resolve, reject) => {
+      if (stompClient && stompClient.connected) {
+        resolve();
+        return;
+      }
+      const socket = new SockJS(`${API_BASE}/battle-ws`);
+      stompClient = Stomp.over(socket);
+      stompClient.debug = null;
+      stompClient.connect({}, async () => {
+        stompClient.subscribe('/topic/battle/' + battleId, message => handleUpdate(JSON.parse(message.body)));
+        document.getElementById('setup').style.display = 'none';
+        document.getElementById('arena').style.display = 'block';
+        logLine(`Connected to ${battleId} as ${playerId}`);
+        await fetchSnapshot();
+        resolve();
+      }, reject);
+    });
+  }
+
+  async function fetchSnapshot() {
+    const response = await fetch(`${API_BASE}/api/battle/${battleId}`);
+    if (!response.ok) return;
+    const data = await response.json();
+    handleUpdate(data);
+  }
+
+  function hpColor(percent) {
+    if (percent > 50) return 'var(--good)';
+    if (percent > 20) return 'var(--warn)';
+    return 'var(--bad)';
+  }
+
+  function renderTeamRows(containerId, team, activeIndex) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = (team || []).map((pokemon, index) => {
+      if (!pokemon) return '';
+      const percent = Math.max(0, Math.round((pokemon.currentHp / pokemon.maxHp) * 100));
+      return `
+        <div class="team-row ${index === activeIndex ? 'active' : ''} ${pokemon.fainted ? 'fainted' : ''}">
+          <img class="sprite" src="${spriteUrl(pokemon.speciesId, false)}" alt="" onerror="this.style.visibility='hidden'">
+          <div style="width:120px; font-weight:700;">${pokemon.nickname || pokemon.speciesId}</div>
+          <div class="hp">
+            <div class="hp-bar"><div class="hp-fill" style="width:${percent}%; background:${hpColor(percent)}"></div></div>
+            <div class="meta">${pokemon.currentHp}/${pokemon.maxHp} HP ${pokemon.status && pokemon.status !== 'NONE' ? ' | ' + pokemon.status : ''}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderMoves() {
+    const grid = document.getElementById('moveGrid');
+    if (!currentSnapshot) return;
+    const myTeamSnap = playerId === 'player1' ? currentSnapshot.player1Team : currentSnapshot.player2Team;
+    const myActiveIndex = playerId === 'player1' ? currentSnapshot.player1ActiveIndex : currentSnapshot.player2ActiveIndex;
+    const active = myTeamSnap?.[myActiveIndex];
+    const moves = slotMoveCache[playerId][myActiveIndex] || [];
+
+    if (!active || active.fainted) {
+      grid.innerHTML = '';
+      return;
+    }
+
+    grid.innerHTML = moves.map(move => `
+      <button class="btn btn-ghost" onclick="sendMove('${move}')">${move}</button>
+    `).join('') + '<button class="btn btn-ghost" onclick="openSwitchModal(true)">Switch Pokemon</button>';
+  }
+
+  function handleUpdate(data) {
+    currentSnapshot = data;
+    if (data.combatLog && data.combatLog.length) {
+      data.combatLog.forEach(logLine);
+    }
+
+    const p1 = data.player1Team?.[data.player1ActiveIndex];
+    const p2 = data.player2Team?.[data.player2ActiveIndex];
+    document.getElementById('p1ActiveSprite').src = spriteUrl(p1?.speciesId, playerId === 'player1');
+    document.getElementById('p2ActiveSprite').src = spriteUrl(p2?.speciesId, playerId === 'player2');
+    document.getElementById('p1ActiveName').textContent = p1?.nickname || 'Player 1';
+    document.getElementById('p2ActiveName').textContent = p2?.nickname || (battleMode === 'ai' ? 'AI' : 'Player 2');
+    document.getElementById('p1ActiveHp').textContent = p1 ? `${p1.currentHp}/${p1.maxHp} HP` : '';
+    document.getElementById('p2ActiveHp').textContent = p2 ? `${p2.currentHp}/${p2.maxHp} HP` : '';
+
+    renderTeamRows('team1Rows', data.player1Team, data.player1ActiveIndex);
+    renderTeamRows('team2Rows', data.player2Team, data.player2ActiveIndex);
+
+    myTeam = playerId === 'player1' ? data.player1Team : data.player2Team;
+
+    if (data.phase === 'BATTLE_OVER') {
+      const banner = document.getElementById('winnerBanner');
+      banner.style.display = 'block';
+      banner.textContent = data.winnerId === playerId ? 'You win!' : 'You lose!';
+      document.getElementById('moveGrid').innerHTML = '';
+      document.getElementById('waitingMsg').style.display = 'none';
+      closeSwitchModal();
+      return;
+    }
+
+    const waitingForMe = (data.phase === 'WAITING_FOR_SWITCH_P1' && playerId === 'player1')
+      || (data.phase === 'WAITING_FOR_SWITCH_P2' && playerId === 'player2')
+      || (data.phase === 'WAITING_FOR_SWITCH_BOTH');
+
+    mustSwitch = waitingForMe;
+    if (mustSwitch) {
+      openSwitchModal(false);
+      document.getElementById('moveGrid').innerHTML = '';
+      document.getElementById('waitingMsg').style.display = 'none';
+      return;
+    }
+    closeSwitchModal();
+
+    if (data.phase === 'CHOOSING_ACTION') {
+      renderMoves();
+      document.getElementById('waitingMsg').style.display = 'none';
+    } else {
+      document.getElementById('moveGrid').innerHTML = '';
+      document.getElementById('waitingMsg').style.display = 'block';
+    }
+  }
+
+  function sendMove(moveName) {
+    if (!stompClient) return;
+    stompClient.send('/app/action', {}, JSON.stringify({ battleId, playerId, actionType: 'MOVE', targetId: moveName, switchIndex: null }));
+    document.getElementById('moveGrid').innerHTML = '';
+    document.getElementById('waitingMsg').style.display = 'block';
+  }
+
+  function openSwitchModal(voluntary) {
+    const activeIndex = playerId === 'player1' ? currentSnapshot?.player1ActiveIndex : currentSnapshot?.player2ActiveIndex;
+    document.getElementById('switchList').innerHTML = (myTeam || []).map((pokemon, index) => {
+      if (!pokemon) return '';
+      const disabled = pokemon.fainted || index === activeIndex;
+      return `<button class="btn btn-ghost switch-btn" onclick="sendSwitch(${index})" ${disabled ? 'disabled' : ''}>${pokemon.nickname}<span>${pokemon.currentHp}/${pokemon.maxHp}</span></button>`;
+    }).join('');
+    document.getElementById('switchModal').classList.add('open');
+  }
+
+  function closeSwitchModal() {
+    document.getElementById('switchModal').classList.remove('open');
+  }
+
+  function sendSwitch(index) {
+    if (!stompClient) return;
+    stompClient.send('/app/action', {}, JSON.stringify({ battleId, playerId, actionType: 'SWITCH', targetId: null, switchIndex: index }));
+    closeSwitchModal();
+    document.getElementById('waitingMsg').style.display = 'block';
+  }
+
+  renderTeamBuilder('playerSlots', 'player', deepClone(DEFAULT_TEAM));
+  renderTeamBuilder('opponentSlots', 'opponent', deepClone(DEFAULT_TEAM));
+  updateModeUI();
+  document.getElementById('log').value = 'Awaiting battle...';
+</script>
+</body>
+</html>
