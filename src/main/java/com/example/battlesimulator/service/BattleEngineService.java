@@ -1732,7 +1732,12 @@ public class BattleEngineService {
             default -> false;
         };
         if (aiMustSwitch) {
-            handleAction(groqBattleAiService.chooseAction(battleId, aiPlayerId, session));
+            int nextAliveIndex = "player1".equals(aiPlayerId)
+                    ? session.getNextAliveIndex(1)
+                    : session.getNextAliveIndex(2);
+            if (nextAliveIndex >= 0) {
+                handleAction(new PlayerAction(battleId, aiPlayerId, "SWITCH", null, nextAliveIndex));
+            }
         }
     }
 
