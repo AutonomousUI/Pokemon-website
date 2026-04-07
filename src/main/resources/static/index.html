@@ -99,6 +99,7 @@
           <label>Mode</label>
           <select id="battleMode" onchange="updateModeUI()">
             <option value="ai">Player vs AI</option>
+            <option value="competitive">Competitive</option>
             <option value="pvp">Player vs Player</option>
           </select>
         </div>
@@ -394,11 +395,15 @@
   function updateModeUI() {
     battleMode = document.getElementById('battleMode').value;
     document.getElementById('playerPicker').style.display = 'none';
-    document.getElementById('aiTrainerPicker').style.display = battleMode === 'ai' ? 'flex' : 'none';
-    document.getElementById('opponentSetupCard').style.display = battleMode === 'ai' ? 'block' : 'none';
+    const aiStyleMode = battleMode === 'ai' || battleMode === 'competitive';
+    document.getElementById('aiTrainerPicker').style.display = aiStyleMode ? 'flex' : 'none';
+    document.getElementById('opponentSetupCard').style.display = aiStyleMode ? 'block' : 'none';
     document.getElementById('pvpLobbyCard').style.display = battleMode === 'pvp' ? 'block' : 'none';
-    document.getElementById('opponentSetupTitle').textContent = battleMode === 'ai' ? 'AI Team' : 'Opponent Team';
-    document.getElementById('team2Title').textContent = battleMode === 'ai' ? 'AI' : (activePvpMatch ? activePvpMatch.opponentUsername : 'Opponent');
+    document.getElementById('opponentSetupTitle').textContent = aiStyleMode ? 'AI Team' : 'Opponent Team';
+    document.getElementById('team2Title').textContent =
+      battleMode === 'competitive' ? 'Competitive AI'
+      : battleMode === 'ai' ? 'AI'
+      : (activePvpMatch ? activePvpMatch.opponentUsername : 'Opponent');
     if (battleMode === 'pvp') {
       refreshLobbyState();
     }
@@ -756,7 +761,8 @@
   }
 
   function applyAiTrainerTeam() {
-    if (document.getElementById('battleMode')?.value !== 'ai') {
+    const mode = document.getElementById('battleMode')?.value;
+    if (mode !== 'ai' && mode !== 'competitive') {
       return;
     }
     renderTeamBuilder('opponentSlots', 'opponent', currentAiTrainerTeam());
@@ -915,6 +921,7 @@
         battleId,
         playerId: serverPlayerId,
         aiControlled,
+        aiMode: aiControlled && battleMode === 'competitive' ? 'competitive' : 'standard',
         pokemonSlot: i,
         speciesName: document.getElementById(`${side}_species_${i}`).value.trim().toLowerCase(),
         level: parseInt(document.getElementById(`${side}_level_${i}`).value || '100', 10),
@@ -975,7 +982,7 @@
     try {
       showStatus('Registering teams with the server...', 'info');
       await postTeam(collectTeam('player', playerId, false));
-      if (battleMode === 'ai') {
+      if (battleMode === 'ai' || battleMode === 'competitive') {
         await postTeam(collectTeam('opponent', 'player2', true));
       }
       await connectWS();
@@ -1078,7 +1085,7 @@
     document.getElementById('p1ActiveSprite').src = spriteUrl(p1?.speciesId, playerId === 'player1');
     document.getElementById('p2ActiveSprite').src = spriteUrl(p2?.speciesId, playerId === 'player2');
     document.getElementById('p1ActiveName').textContent = p1?.nickname || 'Player 1';
-    document.getElementById('p2ActiveName').textContent = p2?.nickname || (battleMode === 'ai' ? 'AI' : 'Player 2');
+    document.getElementById('p2ActiveName').textContent = p2?.nickname || ((battleMode === 'ai' || battleMode === 'competitive') ? 'AI' : 'Player 2');
     document.getElementById('p1ActiveHp').textContent = p1 ? `${p1.currentHp}/${p1.maxHp} HP` : '';
     document.getElementById('p2ActiveHp').textContent = p2 ? `${p2.currentHp}/${p2.maxHp} HP` : '';
 
@@ -1122,7 +1129,7 @@
     } else {
       document.getElementById('moveGrid').innerHTML = '';
       document.getElementById('waitingMsg').style.display = 'block';
-      if (battleMode === 'ai') {
+      if (battleMode === 'ai' || battleMode === 'competitive') {
         pendingSnapshotRefresh = setTimeout(() => fetchSnapshot(), 700);
       }
     }

@@ -12,6 +12,7 @@ public record BattleInitRequest(
         String battleId,
         String playerId,
         boolean aiControlled,
+        @JsonSetter(nulls = Nulls.SKIP) String aiMode,
         int pokemonSlot,
         String speciesName,
         int level,
@@ -24,6 +25,7 @@ public record BattleInitRequest(
 ) {
     // Compact canonical constructor — coerce nulls to defaults
     public BattleInitRequest {
+        if (aiMode == null || aiMode.isBlank()) aiMode = "standard";
         if (heldItem == null) heldItem = HeldItem.NONE;
         if (ability  == null) ability  = Ability.NONE;
     }

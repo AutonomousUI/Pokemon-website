@@ -4,6 +4,7 @@ import com.example.battlesimulator.dto.PlayerAction;
 import com.example.battlesimulator.model.BattlePokemon;
 import com.example.battlesimulator.model.BattleSession;
 import com.example.battlesimulator.model.Move;
+import com.example.battlesimulator.model.enums.HeldItem;
 import com.example.battlesimulator.model.enums.MoveCategory;
 import com.example.battlesimulator.model.enums.Type;
 import com.example.battlesimulator.util.TypeChart;
@@ -41,11 +42,19 @@ public class GroqBattleAiService {
     }
 
     public PlayerAction chooseAction(String battleId, String aiPlayerId, BattleSession session) {
+        boolean competitiveMode = "competitive".equalsIgnoreCase(session.getAiMode());
         if (aiMustSwitch(session, aiPlayerId)) {
-            return chooseFallbackSwitch(battleId, aiPlayerId, session);
+            return competitiveMode
+                    ? chooseCompetitiveSwitch(battleId, aiPlayerId, session)
+                    : chooseFallbackSwitch(battleId, aiPlayerId, session);
         }
 
-        PlayerAction fallback = chooseFallbackMove(battleId, aiPlayerId, session);
+        PlayerAction fallback = competitiveMode
+                ? chooseCompetitiveMove(battleId, aiPlayerId, session)
+                : chooseFallbackMove(battleId, aiPlayerId, session);
+        if (competitiveMode) {
+            return fallback;
+        }
         if (groqApiKey == null || groqApiKey.isBlank()) {
             return fallback;
         }
@@ -84,7 +93,9 @@ public class GroqBattleAiService {
     }
 
     public PlayerAction chooseForcedSwitchAction(String battleId, String aiPlayerId, BattleSession session) {
-        return chooseFallbackSwitch(battleId, aiPlayerId, session);
+        return "competitive".equalsIgnoreCase(session.getAiMode())
+                ? chooseCompetitiveSwitch(battleId, aiPlayerId, session)
+                : chooseFallbackSwitch(battleId, aiPlayerId, session);
     }
 
     private String buildPrompt(BattleSession session, String aiPlayerId) throws Exception {
@@ -245,6 +256,31 @@ public class GroqBattleAiService {
         return new PlayerAction(battleId, aiPlayerId, "MOVE", active != null && !active.getMoves().isEmpty() ? active.getMoves().get(0).id() : null, null);
     }
 
+    private PlayerAction chooseCompetitiveSwitch(String battleId, String aiPlayerId, BattleSession session) {
+        List<BattlePokemon> team = "player1".equals(aiPlayerId) ? session.getPlayer1Team() : session.getPlayer2Team();
+        BattlePokemon active = "player1".equals(aiPlayerId) ? session.getPlayer1Active() : session.getPlayer2Active();
+        BattlePokemon opponent = "player1".equals(aiPlayerId) ? session.getPlayer2Active() : session.getPlayer1Active();
+
+        Integer bestIndex = null;
+        double bestScore = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < team.size(); i++) {
+            BattlePokemon candidate = team.get(i);
+            if (candidate == null || candidate.isFainted() || candidate == active) {
+                continue;
+            }
+            double score = competitiveSwitchScore(candidate, opponent);
+            if (score > bestScore) {
+                bestScore = score;
+                bestIndex = i;
+            }
+        }
+
+        if (bestIndex != null) {
+            return new PlayerAction(battleId, aiPlayerId, "SWITCH", null, bestIndex);
+        }
+        return chooseFallbackSwitch(battleId, aiPlayerId, session);
+    }
+
     private PlayerAction chooseFallbackMove(String battleId, String aiPlayerId, BattleSession session) {
         BattlePokemon active = "player1".equals(aiPlayerId) ? session.getPlayer1Active() : session.getPlayer2Active();
         BattlePokemon defender = "player1".equals(aiPlayerId) ? session.getPlayer2Active() : session.getPlayer1Active();
@@ -273,6 +309,48 @@ public class GroqBattleAiService {
         if (shouldSwitchAgainstSetup(active, defender, bestMove, bestMoveScore, battleId, aiPlayerId, session)) {
             return chooseFallbackSwitch(battleId, aiPlayerId, session);
         }
+        return new PlayerAction(battleId, aiPlayerId, "MOVE", bestMove.id(), null);
+    }
+
+    private PlayerAction chooseCompetitiveMove(String battleId, String aiPlayerId, BattleSession session) {
+        BattlePokemon active = "player1".equals(aiPlayerId) ? session.getPlayer1Active() : session.getPlayer2Active();
+        BattlePokemon defender = "player1".equals(aiPlayerId) ? session.getPlayer2Active() : session.getPlayer1Active();
+        if (active == null || active.isFainted()) {
+            return chooseCompetitiveSwitch(battleId, aiPlayerId, session);
+        }
+
+        Move forcedMove = getChoiceLockedMove(active);
+        if (forcedMove != null) {
+            double forcedScore = competitiveMoveScore(forcedMove, active, defender);
+            PlayerAction bestSwitch = chooseCompetitiveSwitch(battleId, aiPlayerId, session);
+            if (shouldTakeCompetitiveSwitch(active, defender, forcedScore, bestSwitch, aiPlayerId, session)) {
+                return bestSwitch;
+            }
+            return new PlayerAction(battleId, aiPlayerId, "MOVE", forcedMove.id(), null);
+        }
+
+        Move bestMove = null;
+        double bestMoveScore = Double.NEGATIVE_INFINITY;
+        for (Move move : active.getMoves()) {
+            if (move == null) {
+                continue;
+            }
+            double score = competitiveMoveScore(move, active, defender);
+            if (score > bestMoveScore) {
+                bestMoveScore = score;
+                bestMove = move;
+            }
+        }
+
+        if (bestMove == null) {
+            return chooseCompetitiveSwitch(battleId, aiPlayerId, session);
+        }
+
+        PlayerAction bestSwitch = chooseCompetitiveSwitch(battleId, aiPlayerId, session);
+        if (shouldTakeCompetitiveSwitch(active, defender, bestMoveScore, bestSwitch, aiPlayerId, session)) {
+            return bestSwitch;
+        }
+
         return new PlayerAction(battleId, aiPlayerId, "MOVE", bestMove.id(), null);
     }
 
@@ -341,6 +419,28 @@ public class GroqBattleAiService {
         return weakIntoBoostedTarget && switchScore > bestMoveScore + 25.0;
     }
 
+    private boolean shouldTakeCompetitiveSwitch(BattlePokemon active, BattlePokemon defender,
+                                                double currentPlanScore, PlayerAction bestSwitch,
+                                                String aiPlayerId, BattleSession session) {
+        if (defender == null || bestSwitch == null || !"SWITCH".equalsIgnoreCase(bestSwitch.actionType())
+                || bestSwitch.switchIndex() == null) {
+            return false;
+        }
+        List<BattlePokemon> team = "player1".equals(aiPlayerId) ? session.getPlayer1Team() : session.getPlayer2Team();
+        BattlePokemon switchTarget = team.get(bestSwitch.switchIndex());
+        if (switchTarget == null || switchTarget == active || switchTarget.isFainted()) {
+            return false;
+        }
+
+        double switchScore = competitiveSwitchScore(switchTarget, defender);
+        double threat = estimateBestIncomingThreat(defender, active);
+        boolean activeInDanger = threat >= 65.0 || active.getCurrentHp() <= Math.max(1, active.getMaxHp() / 3);
+        boolean matchupAwful = currentPlanScore < 55.0;
+        return switchScore > currentPlanScore + (activeInDanger ? 5.0 : 20.0)
+                || (matchupAwful && switchScore > currentPlanScore)
+                || (defenderHasMajorBoosts(defender) && switchScore > currentPlanScore - 5.0);
+    }
+
     private double heuristicMoveScore(Move move, BattlePokemon attacker, BattlePokemon defender) {
         if (move.category() == MoveCategory.STATUS) {
             return move.priority() > 0 ? 25 : 5;
@@ -391,5 +491,133 @@ public class GroqBattleAiService {
                 + (bulk * 0.12)
                 + (speed * 0.08)
                 - (defensiveSafety * 90.0);
+    }
+
+    private double competitiveMoveScore(Move move, BattlePokemon attacker, BattlePokemon defender) {
+        if (move == null || attacker == null) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        if (move.category() == MoveCategory.STATUS) {
+            return competitiveStatusScore(move, attacker, defender);
+        }
+
+        double multiplier = typeMultiplier(move, defender);
+        if (multiplier == 0.0) {
+            return -1000.0;
+        }
+        double stab = hasStab(attacker, move) ? 1.5 : 1.0;
+        double attackStat = move.category() == MoveCategory.PHYSICAL ? attacker.getAttack() : attacker.getSpecialAttack();
+        double defenseStat = move.category() == MoveCategory.PHYSICAL && defender != null ? defender.getDefense()
+                : defender != null ? defender.getSpecialDefense() : 100.0;
+        double power = Math.max(move.basePower(), 1);
+        double accuracy = move.accuracy() <= 0 ? 1.0 : move.accuracy() / 100.0;
+        double priority = move.priority() * 18.0;
+        double offensiveRatio = defenseStat <= 0 ? attackStat : (attackStat / defenseStat);
+        double expectedDamagePercent = power * accuracy * multiplier * stab * offensiveRatio * 5.5;
+
+        double score = expectedDamagePercent + priority;
+        if (defender != null) {
+            double defenderHpPercent = defender.getMaxHp() > 0 ? (defender.getCurrentHp() * 100.0 / defender.getMaxHp()) : 100.0;
+            if (expectedDamagePercent >= defenderHpPercent) {
+                score += 140.0;
+                if (move.priority() > 0) {
+                    score += 40.0;
+                }
+            }
+            if (multiplier >= 2.0) {
+                score += 28.0;
+            } else if (multiplier < 1.0) {
+                score -= 25.0;
+            }
+            if (defenderHasMajorBoosts(defender) && move.priority() > 0) {
+                score += 30.0;
+            }
+        }
+        return score;
+    }
+
+    private double competitiveStatusScore(Move move, BattlePokemon attacker, BattlePokemon defender) {
+        String moveId = move.id().toLowerCase();
+        double hpRatio = attacker.getMaxHp() > 0 ? (double) attacker.getCurrentHp() / attacker.getMaxHp() : 0.0;
+        return switch (moveId) {
+            case "dragon-dance", "swords-dance", "nasty-plot", "calm-mind", "quiver-dance", "belly-drum" -> {
+                double base = hpRatio > 0.65 ? 90.0 : 30.0;
+                if (defender != null && estimateBestIncomingThreat(defender, attacker) < 45.0) {
+                    base += 35.0;
+                }
+                yield base;
+            }
+            case "recover", "roost", "synthesis", "slack-off", "soft-boiled", "rest", "milk-drink", "moonlight", "shore-up" -> {
+                double missingHpPercent = 100.0 - (hpRatio * 100.0);
+                double base = missingHpPercent;
+                if (defender != null && estimateBestIncomingThreat(defender, attacker) > 55.0) {
+                    base -= 35.0;
+                }
+                yield base;
+            }
+            case "protect", "kings-shield", "spiky-shield" -> 20.0;
+            case "haze", "clear-smog" -> defenderHasMajorBoosts(defender) ? 120.0 : 25.0;
+            case "thunder-wave", "will-o-wisp", "toxic", "sleep-powder" -> 55.0;
+            case "spikes", "stealth-rock", "sticky-web", "toxic-spikes" -> 50.0;
+            default -> 18.0 + move.priority() * 8.0;
+        };
+    }
+
+    private double competitiveSwitchScore(BattlePokemon candidate, BattlePokemon opponent) {
+        double hpRatio = candidate.getMaxHp() > 0 ? (double) candidate.getCurrentHp() / candidate.getMaxHp() : 0.0;
+        double bestOutgoing = candidate.getMoves().stream()
+                .filter(move -> move != null)
+                .mapToDouble(move -> competitiveMoveScore(move, candidate, opponent))
+                .max()
+                .orElse(-50.0);
+        double incomingThreat = estimateBestIncomingThreat(opponent, candidate);
+        double speedValue = candidate.getSpeed() * 0.07;
+        double bulkValue = (candidate.getDefense() + candidate.getSpecialDefense()) * 0.08;
+        return bestOutgoing + (hpRatio * 110.0) + speedValue + bulkValue - incomingThreat;
+    }
+
+    private double estimateBestIncomingThreat(BattlePokemon attacker, BattlePokemon defender) {
+        if (attacker == null || defender == null) {
+            return 0.0;
+        }
+        return attacker.getMoves().stream()
+                .filter(move -> move != null)
+                .mapToDouble(move -> {
+                    if (move.category() == MoveCategory.STATUS) {
+                        return defenderHasMajorBoosts(attacker) ? 35.0 : 10.0;
+                    }
+                    double multiplier = typeMultiplier(move, defender);
+                    double stab = hasStab(attacker, move) ? 1.5 : 1.0;
+                    double attackStat = move.category() == MoveCategory.PHYSICAL ? attacker.getAttack() : attacker.getSpecialAttack();
+                    double defenseStat = move.category() == MoveCategory.PHYSICAL ? defender.getDefense() : defender.getSpecialDefense();
+                    double offensiveRatio = defenseStat <= 0 ? attackStat : (attackStat / defenseStat);
+                    return Math.max(move.basePower(), 1) * multiplier * stab * offensiveRatio * 5.2;
+                })
+                .max()
+                .orElse(0.0);
+    }
+
+    private boolean defenderHasMajorBoosts(BattlePokemon defender) {
+        if (defender == null) {
+            return false;
+        }
+        return defender.getAttackStage() >= 2
+                || defender.getSpecialAttackStage() >= 2
+                || defender.getSpeedStage() >= 2
+                || (Math.max(0, defender.getAttackStage()) + Math.max(0, defender.getSpecialAttackStage())
+                + Math.max(0, defender.getSpeedStage())) >= 3;
+    }
+
+    private boolean hasStab(BattlePokemon attacker, Move move) {
+        return attacker != null && (attacker.getType1() == move.type() || attacker.getType2() == move.type());
+    }
+
+    private double typeMultiplier(Move move, BattlePokemon defender) {
+        if (move == null || defender == null) {
+            return 1.0;
+        }
+        Type t2 = defender.getType2() == null ? Type.NONE : defender.getType2();
+        return TypeChart.getMultiplier(move.type(), defender.getType1())
+                * TypeChart.getMultiplier(move.type(), t2);
     }
 }

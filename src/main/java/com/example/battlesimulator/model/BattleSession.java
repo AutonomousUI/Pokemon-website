@@ -25,6 +25,7 @@ public class BattleSession {
     private String winnerId = null;
     private boolean aiBattle = false;
     private String aiPlayerId = null;
+    private String aiMode = "standard";
     private List<String> battleHistory = new ArrayList<>();
 
     // Weather

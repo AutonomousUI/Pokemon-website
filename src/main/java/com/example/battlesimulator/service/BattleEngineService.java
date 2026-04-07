@@ -93,6 +93,7 @@ public class BattleEngineService {
         if (request.aiControlled()) {
             session.setAiBattle(true);
             session.setAiPlayerId(request.playerId());
+            session.setAiMode(request.aiMode());
         }
 
         BattlePokemon pokemon = pokeApiService.createBattlePokemon(
