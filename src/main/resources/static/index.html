@@ -545,14 +545,18 @@
     if (!species) return FALLBACK_ABILITIES;
     if (speciesAbilityCache[species]) return speciesAbilityCache[species];
 
-    try {
-      const response = await fetch(`${API_BASE}/api/battle/species/${encodeURIComponent(species)}/abilities`);
-      if (!response.ok) throw new Error('species abilities unavailable');
-      const abilities = await response.json();
-      speciesAbilityCache[species] = Array.isArray(abilities) && abilities.length ? abilities : FALLBACK_ABILITIES;
-      return speciesAbilityCache[species];
-    } catch (error) {
-      return FALLBACK_ABILITIES;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await fetch(`${API_BASE}/api/battle/species/${encodeURIComponent(species)}/abilities`);
+        if (!response.ok) throw new Error('species abilities unavailable');
+        const abilities = await response.json();
+        speciesAbilityCache[species] = Array.isArray(abilities) && abilities.length ? abilities : FALLBACK_ABILITIES;
+        return speciesAbilityCache[species];
+      } catch (error) {
+        if (attempt === 2) {
+          return null;
+        }
+      }
     }
   }
 
@@ -591,14 +595,18 @@
     if (!species) return null;
     if (speciesStatsCache[species]) return speciesStatsCache[species];
 
-    try {
-      const response = await fetch(`${API_BASE}/api/battle/species/${encodeURIComponent(species)}/stats`);
-      if (!response.ok) throw new Error('species stats unavailable');
-      const stats = await response.json();
-      speciesStatsCache[species] = stats;
-      return stats;
-    } catch (error) {
-      return null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await fetch(`${API_BASE}/api/battle/species/${encodeURIComponent(species)}/stats`);
+        if (!response.ok) throw new Error('species stats unavailable');
+        const stats = await response.json();
+        speciesStatsCache[species] = stats;
+        return stats;
+      } catch (error) {
+        if (attempt === 2) {
+          return null;
+        }
+      }
     }
   }
 
@@ -703,6 +711,12 @@
 
     const abilities = await fetchSpeciesAbilities(species);
     const currentValue = preferredAbility || abilitySelect.value;
+    if (!abilities || !abilities.length) {
+      if (currentValue) {
+        abilitySelect.innerHTML = optionMarkup([currentValue], currentValue);
+      }
+      return;
+    }
     const nextValue = abilities.includes(currentValue) ? currentValue : abilities[0];
     abilitySelect.innerHTML = optionMarkup(abilities, nextValue);
   }
