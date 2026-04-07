@@ -2,6 +2,7 @@ package com.example.battlesimulator.controller;
 
 import com.example.battlesimulator.dto.BattleInitRequest;
 import com.example.battlesimulator.dto.PlayerAction;
+import com.example.battlesimulator.dto.SpeciesStatsResponse;
 import com.example.battlesimulator.dto.TurnResult;
 import com.example.battlesimulator.service.BattleEngineService;
 import com.example.battlesimulator.service.PokeApiService;
@@ -64,6 +65,15 @@ public class BattleController {
     public ResponseEntity<List<String>> getSpeciesMoves(@PathVariable String speciesName) {
         try {
             return ResponseEntity.ok(pokeApiService.getValidMoves(speciesName));
+        } catch (Exception e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    @GetMapping("/species/{speciesName}/stats")
+    public ResponseEntity<SpeciesStatsResponse> getSpeciesStats(@PathVariable String speciesName) {
+        try {
+            return ResponseEntity.ok(pokeApiService.getSpeciesBaseStats(speciesName));
         } catch (Exception e) {
             return ResponseEntity.notFound().build();
         }

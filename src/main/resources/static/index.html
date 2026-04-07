@@ -42,6 +42,10 @@
     .slot-top { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
     .slot-num { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--accent); color: #08111f; font-weight: 800; }
     .slot-title { font-weight: 700; }
+    .slot-preview { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.03); border: 1px solid var(--border); }
+    .slot-preview img { width: 72px; height: 72px; image-rendering: pixelated; flex: 0 0 auto; }
+    .slot-preview-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 12px; width: 100%; font-size: 12px; color: var(--muted); }
+    .slot-preview-stats strong { color: var(--text); }
     .stat-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
     .move-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     #arena { display: none; }
@@ -241,6 +245,7 @@
   const FALLBACK_ABILITIES = ['NONE'];
   const speciesAbilityCache = {};
   const speciesMoveCache = {};
+  const speciesStatsCache = {};
   let speciesOptionsCache = null;
   const API_BASE = window.location.origin;
   const MEGA_STONE_BY_SPECIES = {
@@ -554,6 +559,110 @@
     }
   }
 
+  async function fetchSpeciesStats(speciesName) {
+    const species = normalizeSpeciesName(speciesName);
+    if (!species) return null;
+    if (speciesStatsCache[species]) return speciesStatsCache[species];
+
+    try {
+      const response = await fetch(`${API_BASE}/api/battle/species/${encodeURIComponent(species)}/stats`);
+      if (!response.ok) throw new Error('species stats unavailable');
+      const stats = await response.json();
+      speciesStatsCache[species] = stats;
+      return stats;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function natureMultiplier(natureName, stat) {
+    const natureMap = {
+      HARDY: { up: 'attack', down: 'attack' },
+      ADAMANT: { up: 'attack', down: 'specialAttack' },
+      BOLD: { up: 'defense', down: 'attack' },
+      BRAVE: { up: 'attack', down: 'speed' },
+      CAREFUL: { up: 'specialDefense', down: 'specialAttack' },
+      IMPISH: { up: 'defense', down: 'specialAttack' },
+      MODEST: { up: 'specialAttack', down: 'attack' },
+      CALM: { up: 'specialDefense', down: 'attack' },
+      JOLLY: { up: 'speed', down: 'specialAttack' },
+      TIMID: { up: 'speed', down: 'attack' }
+    };
+    const nature = natureMap[natureName] || { up: stat, down: stat };
+    if (nature.up === nature.down) return 1;
+    if (nature.up === stat) return 1.1;
+    if (nature.down === stat) return 0.9;
+    return 1;
+  }
+
+  function calculatePreviewHp(base, iv, ev, level) {
+    if (base === 1) return 1;
+    const preLevel = (2 * base) + iv + Math.floor(ev / 4);
+    return Math.floor((preLevel * level) / 100) + level + 10;
+  }
+
+  function calculatePreviewOther(base, iv, ev, level, nature, stat) {
+    const preLevel = (2 * base) + iv + Math.floor(ev / 4);
+    const raw = Math.floor((preLevel * level) / 100) + 5;
+    return Math.floor(raw * natureMultiplier(nature, stat));
+  }
+
+  async function updatePreviewStats(side, index) {
+    const speciesInput = document.getElementById(`${side}_species_${index}`);
+    const levelInput = document.getElementById(`${side}_level_${index}`);
+    const natureSelect = document.getElementById(`${side}_nature_${index}`);
+    const previewSprite = document.getElementById(`${side}_preview_sprite_${index}`);
+    const previewStats = document.getElementById(`${side}_preview_stats_${index}`);
+    if (!speciesInput || !levelInput || !natureSelect || !previewSprite || !previewStats) return;
+
+    const species = normalizeSpeciesName(speciesInput.value);
+    previewSprite.src = spriteUrl(species, false);
+    previewSprite.style.visibility = species ? 'visible' : 'hidden';
+
+    const baseStats = await fetchSpeciesStats(species);
+    if (!baseStats) {
+      previewStats.innerHTML = '<span class="muted">Stats unavailable for this species.</span>';
+      return;
+    }
+
+    const level = parseInt(levelInput.value || '100', 10);
+    const nature = natureSelect.value;
+    const ivs = {
+      hp: parseInt(document.getElementById(`${side}_iv_hp_${index}`).value || '0', 10),
+      attack: parseInt(document.getElementById(`${side}_iv_attack_${index}`).value || '0', 10),
+      defense: parseInt(document.getElementById(`${side}_iv_defense_${index}`).value || '0', 10),
+      specialAttack: parseInt(document.getElementById(`${side}_iv_specialAttack_${index}`).value || '0', 10),
+      specialDefense: parseInt(document.getElementById(`${side}_iv_specialDefense_${index}`).value || '0', 10),
+      speed: parseInt(document.getElementById(`${side}_iv_speed_${index}`).value || '0', 10)
+    };
+    const evs = {
+      hp: parseInt(document.getElementById(`${side}_ev_hp_${index}`).value || '0', 10),
+      attack: parseInt(document.getElementById(`${side}_ev_attack_${index}`).value || '0', 10),
+      defense: parseInt(document.getElementById(`${side}_ev_defense_${index}`).value || '0', 10),
+      specialAttack: parseInt(document.getElementById(`${side}_ev_specialAttack_${index}`).value || '0', 10),
+      specialDefense: parseInt(document.getElementById(`${side}_ev_specialDefense_${index}`).value || '0', 10),
+      speed: parseInt(document.getElementById(`${side}_ev_speed_${index}`).value || '0', 10)
+    };
+
+    const finalStats = {
+      hp: calculatePreviewHp(baseStats.hp, ivs.hp, evs.hp, level),
+      attack: calculatePreviewOther(baseStats.attack, ivs.attack, evs.attack, level, nature, 'attack'),
+      defense: calculatePreviewOther(baseStats.defense, ivs.defense, evs.defense, level, nature, 'defense'),
+      specialAttack: calculatePreviewOther(baseStats.specialAttack, ivs.specialAttack, evs.specialAttack, level, nature, 'specialAttack'),
+      specialDefense: calculatePreviewOther(baseStats.specialDefense, ivs.specialDefense, evs.specialDefense, level, nature, 'specialDefense'),
+      speed: calculatePreviewOther(baseStats.speed, ivs.speed, evs.speed, level, nature, 'speed')
+    };
+
+    previewStats.innerHTML = `
+      <div><strong>HP</strong> ${finalStats.hp}</div>
+      <div><strong>Atk</strong> ${finalStats.attack}</div>
+      <div><strong>Def</strong> ${finalStats.defense}</div>
+      <div><strong>SpA</strong> ${finalStats.specialAttack}</div>
+      <div><strong>SpD</strong> ${finalStats.specialDefense}</div>
+      <div><strong>Spe</strong> ${finalStats.speed}</div>
+    `;
+  }
+
   async function refreshAbilityOptions(side, index, preferredAbility) {
     const speciesInput = document.getElementById(`${side}_species_${index}`);
     const abilitySelect = document.getElementById(`${side}_ability_${index}`);
@@ -652,6 +761,7 @@
       syncMegaItemConstraint(side, index);
       refreshAbilityOptions(side, index);
       refreshMoveOptions(side, index);
+      updatePreviewStats(side, index);
     };
     speciesInput.addEventListener('change', syncSpeciesData);
     speciesInput.addEventListener('blur', syncSpeciesData);
@@ -660,12 +770,14 @@
       if (slotTitle) {
         slotTitle.textContent = normalizeSpeciesName(speciesInput.value) || `slot ${index + 1}`;
       }
+      updatePreviewStats(side, index);
     });
 
     syncMegaItemConstraint(side, index);
     refreshAbilityOptions(side, index, defaultAbility);
     refreshMoveOptions(side, index);
     refreshSpeciesOptions(side, index);
+    updatePreviewStats(side, index);
   }
 
   function renderTeamBuilder(containerId, side, defaults) {
@@ -677,6 +789,10 @@
           <div class="slot-top">
             <div class="slot-num">${index + 1}</div>
             <div class="slot-title">${slot.species}</div>
+          </div>
+          <div class="slot-preview">
+            <img id="${side}_preview_sprite_${index}" src="${spriteUrl(slot.species, false)}" alt="" onerror="this.style.visibility='hidden'">
+            <div id="${side}_preview_stats_${index}" class="slot-preview-stats"></div>
           </div>
           <div class="row">
             <div class="field" style="flex:1 1 180px">
@@ -726,6 +842,22 @@
         </div>
       `);
       wireSpeciesAbilitySync(side, index, slot.ability);
+      ['level','nature'].forEach(kind => {
+        const element = document.getElementById(`${side}_${kind}_${index}`);
+        if (element) {
+          element.addEventListener('change', () => updatePreviewStats(side, index));
+          element.addEventListener('input', () => updatePreviewStats(side, index));
+        }
+      });
+      ['hp','attack','defense','specialAttack','specialDefense','speed'].forEach(stat => {
+        ['ev','iv'].forEach(kind => {
+          const element = document.getElementById(`${side}_${kind}_${stat}_${index}`);
+          if (element) {
+            element.addEventListener('change', () => updatePreviewStats(side, index));
+            element.addEventListener('input', () => updatePreviewStats(side, index));
+          }
+        });
+      });
     });
   }
 

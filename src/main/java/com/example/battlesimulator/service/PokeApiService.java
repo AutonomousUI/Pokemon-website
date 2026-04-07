@@ -1,5 +1,6 @@
 package com.example.battlesimulator.service;
 
+import com.example.battlesimulator.dto.SpeciesStatsResponse;
 import com.example.battlesimulator.dto.pokeapi.MoveApiResponse;
 import com.example.battlesimulator.dto.pokeapi.PokemonApiResponse;
 import com.example.battlesimulator.dto.pokeapi.PokemonListApiResponse;
@@ -175,6 +176,28 @@ public class PokeApiService {
                 .distinct()
                 .sorted(Comparator.naturalOrder())
                 .toList();
+    }
+
+    @Cacheable("pokemonBaseStats")
+    public SpeciesStatsResponse getSpeciesBaseStats(String speciesName) {
+        if (isAshPikachu(speciesName)) {
+            return new SpeciesStatsResponse(45, 80, 50, 75, 60, 120);
+        }
+
+        PokemonApiResponse apiResponse = fetchPokemon(speciesName);
+
+        if (apiResponse == null) {
+            throw new IllegalArgumentException("Pokemon not found: " + speciesName);
+        }
+
+        return new SpeciesStatsResponse(
+                getBaseStat(apiResponse, "hp"),
+                getBaseStat(apiResponse, "attack"),
+                getBaseStat(apiResponse, "defense"),
+                getBaseStat(apiResponse, "special-attack"),
+                getBaseStat(apiResponse, "special-defense"),
+                getBaseStat(apiResponse, "speed")
+        );
     }
 
     public void applyMegaEvolution(BattlePokemon pokemon, String megaSpeciesName, com.example.battlesimulator.model.enums.Ability megaAbility) {
