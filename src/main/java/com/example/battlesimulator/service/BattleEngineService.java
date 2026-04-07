@@ -17,6 +17,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -1724,7 +1725,10 @@ public class BattleEngineService {
         if (aiAlreadyActed) {
             return;
         }
-        registerPendingAction(groqBattleAiService.chooseAction(battleId, aiPlayerId, session));
+        PlayerAction aiAction = "competitive".equalsIgnoreCase(session.getAiMode())
+                ? chooseCompetitiveSimulatedAction(battleId, aiPlayerId, session)
+                : groqBattleAiService.chooseAction(battleId, aiPlayerId, session);
+        registerPendingAction(aiAction);
     }
 
     private void maybeHandleAiForcedSwitch(BattleSession session, String battleId) {
@@ -1742,12 +1746,395 @@ public class BattleEngineService {
             default -> false;
         };
         if (aiMustSwitch) {
-            PlayerAction switchAction = groqBattleAiService.chooseForcedSwitchAction(battleId, aiPlayerId, session);
+            PlayerAction switchAction = "competitive".equalsIgnoreCase(session.getAiMode())
+                    ? chooseCompetitiveForcedSwitchAction(battleId, aiPlayerId, session)
+                    : groqBattleAiService.chooseForcedSwitchAction(battleId, aiPlayerId, session);
             if (switchAction != null && "SWITCH".equalsIgnoreCase(switchAction.actionType())
                     && switchAction.switchIndex() != null && switchAction.switchIndex() >= 0) {
                 handleAction(switchAction);
             }
         }
+    }
+
+    private PlayerAction chooseCompetitiveSimulatedAction(String battleId, String aiPlayerId, BattleSession session) {
+        String opponentId = "player1".equals(aiPlayerId) ? "player2" : "player1";
+        PlayerAction opponentAction = pendingActions.getOrDefault(battleId, List.of()).stream()
+                .filter(action -> opponentId.equals(action.playerId()))
+                .findFirst()
+                .orElse(null);
+        if (opponentAction == null) {
+            return groqBattleAiService.chooseAction(battleId, aiPlayerId, session);
+        }
+
+        List<PlayerAction> candidates = generateCompetitiveCandidateActions(battleId, aiPlayerId, session);
+        if (candidates.isEmpty()) {
+            return groqBattleAiService.chooseAction(battleId, aiPlayerId, session);
+        }
+
+        return candidates.stream()
+                .max(Comparator.comparingDouble(candidate ->
+                        evaluateCompetitiveCandidate(session, aiPlayerId, opponentAction, candidate)))
+                .orElseGet(() -> groqBattleAiService.chooseAction(battleId, aiPlayerId, session));
+    }
+
+    private PlayerAction chooseCompetitiveForcedSwitchAction(String battleId, String aiPlayerId, BattleSession session) {
+        List<BattlePokemon> team = "player1".equals(aiPlayerId) ? session.getPlayer1Team() : session.getPlayer2Team();
+        BattlePokemon active = "player1".equals(aiPlayerId) ? session.getPlayer1Active() : session.getPlayer2Active();
+        if (team == null) {
+            return groqBattleAiService.chooseForcedSwitchAction(battleId, aiPlayerId, session);
+        }
+
+        Integer bestIndex = null;
+        double bestScore = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < team.size(); i++) {
+            BattlePokemon candidate = team.get(i);
+            if (candidate == null || candidate.isFainted() || candidate == active) {
+                continue;
+            }
+            BattleSession simulated = copyBattleSession(session, battleId + "-sim-switch");
+            simulateForcedSwitch(simulated, aiPlayerId, i);
+            double score = evaluateCompetitiveState(simulated, aiPlayerId);
+            if (score > bestScore) {
+                bestScore = score;
+                bestIndex = i;
+            }
+        }
+
+        if (bestIndex != null) {
+            return new PlayerAction(battleId, aiPlayerId, "SWITCH", null, bestIndex);
+        }
+        return groqBattleAiService.chooseForcedSwitchAction(battleId, aiPlayerId, session);
+    }
+
+    private List<PlayerAction> generateCompetitiveCandidateActions(String battleId, String aiPlayerId, BattleSession session) {
+        List<PlayerAction> candidates = new ArrayList<>();
+        BattlePokemon active = "player1".equals(aiPlayerId) ? session.getPlayer1Active() : session.getPlayer2Active();
+        List<BattlePokemon> team = "player1".equals(aiPlayerId) ? session.getPlayer1Team() : session.getPlayer2Team();
+        if (active == null || active.isFainted()) {
+            return candidates;
+        }
+
+        Move lockedMove = getChoiceLockedMove(active);
+        if (lockedMove != null) {
+            candidates.add(new PlayerAction(battleId, aiPlayerId, "MOVE", lockedMove.id(), null));
+        } else {
+            for (Move move : active.getMoves()) {
+                if (move != null) {
+                    candidates.add(new PlayerAction(battleId, aiPlayerId, "MOVE", move.id(), null));
+                }
+            }
+        }
+
+        if (!active.isTrapped() && team != null) {
+            for (int i = 0; i < team.size(); i++) {
+                BattlePokemon candidate = team.get(i);
+                if (candidate != null && candidate != active && !candidate.isFainted()) {
+                    candidates.add(new PlayerAction(battleId, aiPlayerId, "SWITCH", null, i));
+                }
+            }
+        }
+        return candidates;
+    }
+
+    private double evaluateCompetitiveCandidate(BattleSession session, String aiPlayerId,
+                                                PlayerAction opponentAction, PlayerAction aiAction) {
+        BattleSession simulated = copyBattleSession(session, aiAction.battleId() + "-sim");
+        List<PlayerAction> actions = List.of(copyAction(opponentAction), copyAction(aiAction));
+        simulateResolvedTurn(simulated, actions);
+        return evaluateCompetitiveState(simulated, aiPlayerId);
+    }
+
+    private PlayerAction copyAction(PlayerAction action) {
+        return new PlayerAction(action.battleId(), action.playerId(), action.actionType(), action.targetId(), action.switchIndex());
+    }
+
+    private double evaluateCompetitiveState(BattleSession session, String aiPlayerId) {
+        boolean aiIsPlayerOne = "player1".equals(aiPlayerId);
+        double aiScore = evaluateSide(aiIsPlayerOne ? session.getPlayer1Team() : session.getPlayer2Team(),
+                aiIsPlayerOne ? session.getPlayer1ActiveIndex() : session.getPlayer2ActiveIndex());
+        double oppScore = evaluateSide(aiIsPlayerOne ? session.getPlayer2Team() : session.getPlayer1Team(),
+                aiIsPlayerOne ? session.getPlayer2ActiveIndex() : session.getPlayer1ActiveIndex());
+        if (session.getPhase() == Phase.BATTLE_OVER) {
+            if (aiPlayerId.equals(session.getWinnerId())) {
+                return 100000.0 + aiScore - oppScore;
+            }
+            if (session.getWinnerId() != null) {
+                return -100000.0 + aiScore - oppScore;
+            }
+        }
+        return aiScore - oppScore;
+    }
+
+    private double evaluateSide(List<BattlePokemon> team, int activeIndex) {
+        if (team == null) {
+            return 0.0;
+        }
+        double score = 0.0;
+        for (int i = 0; i < team.size(); i++) {
+            BattlePokemon pokemon = team.get(i);
+            if (pokemon == null || pokemon.isFainted()) {
+                continue;
+            }
+            double hpPercent = pokemon.getMaxHp() > 0 ? (pokemon.getCurrentHp() * 100.0 / pokemon.getMaxHp()) : 0.0;
+            double baseValue = 150.0 + hpPercent;
+            double statValue = (pokemon.getAttack() + pokemon.getDefense() + pokemon.getSpecialAttack()
+                    + pokemon.getSpecialDefense() + pokemon.getSpeed()) * 0.03;
+            double boostValue = (pokemon.getAttackStage() + pokemon.getDefenseStage() + pokemon.getSpecialAttackStage()
+                    + pokemon.getSpecialDefenseStage() + pokemon.getSpeedStage()) * 8.0;
+            double activeBonus = i == activeIndex ? 18.0 : 0.0;
+            score += baseValue + statValue + boostValue + activeBonus;
+        }
+        return score;
+    }
+
+    private void simulateForcedSwitch(BattleSession session, String playerId, int idx) {
+        List<BattlePokemon> team = "player1".equals(playerId) ? session.getPlayer1Team() : session.getPlayer2Team();
+        if (team == null || idx < 0 || idx >= team.size() || team.get(idx) == null || team.get(idx).isFainted()) {
+            return;
+        }
+        List<String> log = new ArrayList<>();
+        if ("player1".equals(playerId)) {
+            BattlePokemon prev = session.getPlayer1Active();
+            session.setPlayer1ActiveIndex(idx);
+            BattlePokemon incoming = session.getPlayer1Active();
+            if (prev != null && !prev.isFainted()) {
+                applyOnSwitchOutAbility(prev, log);
+            }
+            tryApplyMegaEvolution(incoming, log);
+            applyOnSwitchInAbility(incoming, session.getPlayer2Active(), session, log);
+            applyEntryHazards(incoming, 1, session, log);
+        } else {
+            BattlePokemon prev = session.getPlayer2Active();
+            session.setPlayer2ActiveIndex(idx);
+            BattlePokemon incoming = session.getPlayer2Active();
+            if (prev != null && !prev.isFainted()) {
+                applyOnSwitchOutAbility(prev, log);
+            }
+            tryApplyMegaEvolution(incoming, log);
+            applyOnSwitchInAbility(incoming, session.getPlayer1Active(), session, log);
+            applyEntryHazards(incoming, 2, session, log);
+        }
+    }
+
+    private BattleSession simulateResolvedTurn(BattleSession session, List<PlayerAction> actions) {
+        List<String> log = new ArrayList<>();
+        PlayerAction p1Action = actions.stream().filter(a -> a.playerId().equals("player1")).findFirst().orElse(null);
+        PlayerAction p2Action = actions.stream().filter(a -> a.playerId().equals("player2")).findFirst().orElse(null);
+
+        BattlePokemon p1 = session.getPlayer1Active();
+        BattlePokemon p2 = session.getPlayer2Active();
+        if (p1 == null || p2 == null) {
+            return session;
+        }
+        p1.setMovedThisTurn(false);
+        p2.setMovedThisTurn(false);
+        p1.setAnalyticBoosted(false);
+        p2.setAnalyticBoosted(false);
+
+        if (p1Action != null && p1Action.actionType().equals("SWITCH")) {
+            BattlePokemon p1Prev = session.getPlayer1Active();
+            if (p1Prev != null) applyOnSwitchOutAbility(p1Prev, log);
+            session.setPlayer1ActiveIndex(p1Action.switchIndex());
+            p1 = session.getPlayer1Active();
+            tryApplyMegaEvolution(p1, log);
+            applyOnSwitchInAbility(p1, session.getPlayer2Active(), session, log);
+            applyEntryHazards(p1, 1, session, log);
+        }
+        if (p2Action != null && p2Action.actionType().equals("SWITCH")) {
+            BattlePokemon p2Prev = session.getPlayer2Active();
+            if (p2Prev != null) applyOnSwitchOutAbility(p2Prev, log);
+            session.setPlayer2ActiveIndex(p2Action.switchIndex());
+            p2 = session.getPlayer2Active();
+            tryApplyMegaEvolution(p2, log);
+            applyOnSwitchInAbility(p2, session.getPlayer1Active(), session, log);
+            applyEntryHazards(p2, 2, session, log);
+        }
+
+        Move p1Move = (p1Action != null && p1Action.actionType().equals("MOVE")) ? pokeApiService.getMove(p1Action.targetId()) : null;
+        Move p2Move = (p2Action != null && p2Action.actionType().equals("MOVE")) ? pokeApiService.getMove(p2Action.targetId()) : null;
+        int p1Priority = (p1Action != null && p1Action.actionType().equals("SWITCH")) ? 7 : adjustedPriority(p1, p1Move, session);
+        int p2Priority = (p2Action != null && p2Action.actionType().equals("SWITCH")) ? 7 : adjustedPriority(p2, p2Move, session);
+
+        double p1ParaFactor = (p1.getStatusCondition() == com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS) ? 0.5 : 1.0;
+        double p2ParaFactor = (p2.getStatusCondition() == com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS) ? 0.5 : 1.0;
+        double p1ScarfFactor = (p1.getHeldItem() == HeldItem.CHOICE_SCARF) ? 1.5 : 1.0;
+        double p2ScarfFactor = (p2.getHeldItem() == HeldItem.CHOICE_SCARF) ? 1.5 : 1.0;
+        double p1IronBallFactor = (p1.getHeldItem() == HeldItem.IRON_BALL) ? 0.5 : 1.0;
+        double p2IronBallFactor = (p2.getHeldItem() == HeldItem.IRON_BALL) ? 0.5 : 1.0;
+        double p1AbilitySpeedFactor = abilitySpeedFactor(p1, session);
+        double p2AbilitySpeedFactor = abilitySpeedFactor(p2, session);
+        int p1EffectiveSpeed = (int) Math.floor(p1.getSpeed() * stageMultiplier(p1.getSpeedStage()) * p1ParaFactor * p1ScarfFactor * p1IronBallFactor * p1AbilitySpeedFactor);
+        int p2EffectiveSpeed = (int) Math.floor(p2.getSpeed() * stageMultiplier(p2.getSpeedStage()) * p2ParaFactor * p2ScarfFactor * p2IronBallFactor * p2AbilitySpeedFactor);
+        boolean p1GoesFirst;
+        if (p1Priority != p2Priority) {
+            p1GoesFirst = p1Priority > p2Priority;
+        } else {
+            int p1SpeedForOrder = p1.getAbility() == Ability.STALL ? Integer.MIN_VALUE : p1EffectiveSpeed;
+            int p2SpeedForOrder = p2.getAbility() == Ability.STALL ? Integer.MIN_VALUE : p2EffectiveSpeed;
+            p1GoesFirst = p1SpeedForOrder != p2SpeedForOrder ? p1SpeedForOrder > p2SpeedForOrder : true;
+        }
+
+        if (p1GoesFirst) {
+            if (p1Move != null) executeAttack(p1, p2, p1Move, session, log);
+            if (!p2.isFainted() && p2Move != null) executeAttack(p2, p1, p2Move, session, log);
+        } else {
+            if (p2Move != null) executeAttack(p2, p1, p2Move, session, log);
+            if (!p1.isFainted() && p1Move != null) executeAttack(p1, p2, p1Move, session, log);
+        }
+
+        if (p1.isProtecting()) { p1.setProtecting(false); } else { p1.setProtectConsecutive(0); }
+        if (p2.isProtecting()) { p2.setProtecting(false); } else { p2.setProtectConsecutive(0); }
+
+        if (!p1.isFainted()) applyEndOfTurnStatus(p1, log);
+        if (!p2.isFainted()) applyEndOfTurnStatus(p2, log);
+        if (!p1.isFainted()) applyEndOfTurnAbilityEffects(p1, session, log);
+        if (!p2.isFainted()) applyEndOfTurnAbilityEffects(p2, session, log);
+        if (!p1.isFainted()) applyEndOfTurnItemEffects(p1, log);
+        if (!p2.isFainted()) applyEndOfTurnItemEffects(p2, log);
+        if (!p1.isFainted()) tickVolatileConditions(p1, log);
+        if (!p2.isFainted()) tickVolatileConditions(p2, log);
+        applyEndOfTurnWeather(session, p1, p2, log);
+
+        boolean p1Fainted = p1.isFainted();
+        boolean p2Fainted = p2.isFainted();
+        if (p1Fainted && hasTrappingAbility(p1)) p2.setTrapped(false);
+        if (p2Fainted && hasTrappingAbility(p2)) p1.setTrapped(false);
+
+        if (session.isPlayer1AllFainted()) {
+            session.setPhase(Phase.BATTLE_OVER);
+            session.setWinnerId("player2");
+        } else if (session.isPlayer2AllFainted()) {
+            session.setPhase(Phase.BATTLE_OVER);
+            session.setWinnerId("player1");
+        } else if (p1Fainted && p2Fainted) {
+            session.setPhase(Phase.WAITING_FOR_SWITCH_BOTH);
+        } else if (p1Fainted) {
+            session.setPhase(Phase.WAITING_FOR_SWITCH_P1);
+        } else if (p2Fainted) {
+            session.setPhase(Phase.WAITING_FOR_SWITCH_P2);
+        } else {
+            session.setPhase(Phase.CHOOSING_ACTION);
+            session.setTurnCount(session.getTurnCount() + 1);
+        }
+
+        return session;
+    }
+
+    private Move getChoiceLockedMove(BattlePokemon active) {
+        if (active == null || active.getChoiceLock() == null || active.getHeldItem() == null) {
+            return null;
+        }
+        return switch (active.getHeldItem()) {
+            case CHOICE_BAND, CHOICE_SPECS, CHOICE_SCARF -> active.getMoves().stream()
+                    .filter(move -> move != null && move.id().equalsIgnoreCase(active.getChoiceLock()))
+                    .findFirst()
+                    .orElse(null);
+            default -> null;
+        };
+    }
+
+    private BattleSession copyBattleSession(BattleSession original, String battleId) {
+        BattleSession copy = new BattleSession(battleId);
+        copy.setPlayer1Team(copyTeam(original.getPlayer1Team()));
+        copy.setPlayer2Team(copyTeam(original.getPlayer2Team()));
+        copy.setPlayer1ActiveIndex(original.getPlayer1ActiveIndex());
+        copy.setPlayer2ActiveIndex(original.getPlayer2ActiveIndex());
+        copy.setTurnCount(original.getTurnCount());
+        copy.setPhase(original.getPhase());
+        copy.setWinnerId(original.getWinnerId());
+        copy.setAiBattle(original.isAiBattle());
+        copy.setAiPlayerId(original.getAiPlayerId());
+        copy.setAiMode(original.getAiMode());
+        copy.setBattleHistory(new ArrayList<>(original.getBattleHistory()));
+        copy.setWeather(original.getWeather());
+        copy.setWeatherTurnsRemaining(original.getWeatherTurnsRemaining());
+        copy.setTerrain(original.getTerrain());
+        copy.setTerrainTurnsRemaining(original.getTerrainTurnsRemaining());
+        copy.setSpikesPlayer1(original.getSpikesPlayer1());
+        copy.setSpikesPlayer2(original.getSpikesPlayer2());
+        copy.setToxicSpikesPlayer1(original.getToxicSpikesPlayer1());
+        copy.setToxicSpikesPlayer2(original.getToxicSpikesPlayer2());
+        copy.setStealthRockPlayer1(original.isStealthRockPlayer1());
+        copy.setStealthRockPlayer2(original.isStealthRockPlayer2());
+        copy.setStickyWebPlayer1(original.isStickyWebPlayer1());
+        copy.setStickyWebPlayer2(original.isStickyWebPlayer2());
+        return copy;
+    }
+
+    private List<BattlePokemon> copyTeam(List<BattlePokemon> team) {
+        List<BattlePokemon> copied = new ArrayList<>();
+        for (BattlePokemon pokemon : team) {
+            copied.add(pokemon == null ? null : copyPokemon(pokemon));
+        }
+        return copied;
+    }
+
+    private BattlePokemon copyPokemon(BattlePokemon pokemon) {
+        return BattlePokemon.builder()
+                .speciesId(pokemon.getSpeciesId())
+                .originalSpeciesId(pokemon.getOriginalSpeciesId())
+                .nickname(pokemon.getNickname())
+                .level(pokemon.getLevel())
+                .nature(pokemon.getNature())
+                .ivs(pokemon.getIvs())
+                .evs(pokemon.getEvs())
+                .type1(pokemon.getType1())
+                .type2(pokemon.getType2())
+                .baseType1(pokemon.getBaseType1())
+                .baseType2(pokemon.getBaseType2())
+                .maxHp(pokemon.getMaxHp())
+                .attack(pokemon.getAttack())
+                .defense(pokemon.getDefense())
+                .specialAttack(pokemon.getSpecialAttack())
+                .specialDefense(pokemon.getSpecialDefense())
+                .speed(pokemon.getSpeed())
+                .currentHp(pokemon.getCurrentHp())
+                .statusCondition(pokemon.getStatusCondition())
+                .toxicCounter(pokemon.getToxicCounter())
+                .sleepCounter(pokemon.getSleepCounter())
+                .attackStage(pokemon.getAttackStage())
+                .defenseStage(pokemon.getDefenseStage())
+                .specialAttackStage(pokemon.getSpecialAttackStage())
+                .specialDefenseStage(pokemon.getSpecialDefenseStage())
+                .speedStage(pokemon.getSpeedStage())
+                .evasionStage(pokemon.getEvasionStage())
+                .accuracyStage(pokemon.getAccuracyStage())
+                .confused(pokemon.isConfused())
+                .confusionCounter(pokemon.getConfusionCounter())
+                .taunted(pokemon.isTaunted())
+                .tauntCounter(pokemon.getTauntCounter())
+                .flinched(pokemon.isFlinched())
+                .trapped(pokemon.isTrapped())
+                .critStageBonus(pokemon.getCritStageBonus())
+                .pressurePpDrain(pokemon.getPressurePpDrain())
+                .chargingMove(pokemon.getChargingMove())
+                .protecting(pokemon.isProtecting())
+                .protectConsecutive(pokemon.getProtectConsecutive())
+                .substituteHp(pokemon.getSubstituteHp())
+                .perishCount(pokemon.getPerishCount())
+                .futureSightTurns(pokemon.getFutureSightTurns())
+                .futureSightDmg(pokemon.getFutureSightDmg())
+                .batonPassPending(pokemon.isBatonPassPending())
+                .needsForcedSwitch(pokemon.isNeedsForcedSwitch())
+                .moves(pokemon.getMoves() == null ? List.of() : new ArrayList<>(pokemon.getMoves()))
+                .ability(pokemon.getAbility())
+                .flashFireActive(pokemon.isFlashFireActive())
+                .unburdened(pokemon.isUnburdened())
+                .disguiseIntact(pokemon.isDisguiseIntact())
+                .iceFaceIntact(pokemon.isIceFaceIntact())
+                .truantLoafing(pokemon.isTruantLoafing())
+                .slowStartTurns(pokemon.getSlowStartTurns())
+                .supremeOverlordStacks(pokemon.getSupremeOverlordStacks())
+                .movedThisTurn(pokemon.isMovedThisTurn())
+                .analyticBoosted(pokemon.isAnalyticBoosted())
+                .heldItem(pokemon.getHeldItem())
+                .focusSashUsed(pokemon.isFocusSashUsed())
+                .berryUsed(pokemon.isBerryUsed())
+                .weaknessPolicyUsed(pokemon.isWeaknessPolicyUsed())
+                .airBalloonPopped(pokemon.isAirBalloonPopped())
+                .megaEvolved(pokemon.isMegaEvolved())
+                .choiceLock(pokemon.getChoiceLock())
+                .build();
     }
 
     private TurnResult buildSnapshot(BattleSession session, List<String> log, boolean battleOver) {
