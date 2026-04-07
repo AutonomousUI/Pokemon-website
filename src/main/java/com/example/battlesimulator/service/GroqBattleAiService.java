@@ -268,7 +268,7 @@ public class GroqBattleAiService {
             if (candidate == null || candidate.isFainted() || candidate == active) {
                 continue;
             }
-            double score = competitiveSwitchScore(candidate, opponent);
+            double score = competitiveSwitchActionScore(candidate, opponent);
             if (score > bestScore) {
                 bestScore = score;
                 bestIndex = i;
@@ -335,7 +335,7 @@ public class GroqBattleAiService {
             if (move == null) {
                 continue;
             }
-            double score = competitiveMoveScore(move, active, defender);
+            double score = competitiveMoveActionScore(move, active, defender);
             if (score > bestMoveScore) {
                 bestMoveScore = score;
                 bestMove = move;
@@ -352,6 +352,202 @@ public class GroqBattleAiService {
         }
 
         return new PlayerAction(battleId, aiPlayerId, "MOVE", bestMove.id(), null);
+    }
+
+    private double competitiveMoveActionScore(Move move, BattlePokemon attacker, BattlePokemon defender) {
+        double immediate = competitiveMoveScore(move, attacker, defender);
+        if (move == null || attacker == null) {
+            return immediate;
+        }
+        if (defender == null || defender.isFainted()) {
+            return immediate;
+        }
+
+        BattlePokemon projectedAttacker = copyForEvaluation(attacker);
+        BattlePokemon projectedDefender = copyForEvaluation(defender);
+        applyProjectedMoveOutcome(move, projectedAttacker, projectedDefender);
+
+        if (projectedDefender.isFainted()) {
+            return immediate + 120.0;
+        }
+
+        double boardAdvantage = projectedBoardAdvantage(projectedAttacker, projectedDefender);
+        double opponentReply = estimateBestIncomingThreat(projectedDefender, projectedAttacker);
+        return immediate + (boardAdvantage * 0.35) - (opponentReply * 0.70);
+    }
+
+    private double competitiveSwitchActionScore(BattlePokemon candidate, BattlePokemon opponent) {
+        double immediate = competitiveSwitchScore(candidate, opponent);
+        if (candidate == null || opponent == null || opponent.isFainted()) {
+            return immediate;
+        }
+
+        BattlePokemon projectedCandidate = copyForEvaluation(candidate);
+        BattlePokemon projectedOpponent = copyForEvaluation(opponent);
+        double opponentReply = estimateBestIncomingThreat(projectedOpponent, projectedCandidate);
+        double boardAdvantage = projectedBoardAdvantage(projectedCandidate, projectedOpponent);
+        return immediate + (boardAdvantage * 0.25) - (opponentReply * 0.45);
+    }
+
+    private double projectedBoardAdvantage(BattlePokemon attacker, BattlePokemon defender) {
+        if (attacker == null) {
+            return -100.0;
+        }
+        if (defender == null || defender.isFainted()) {
+            return 180.0;
+        }
+
+        double attackerHpPercent = attacker.getMaxHp() > 0 ? (attacker.getCurrentHp() * 100.0 / attacker.getMaxHp()) : 0.0;
+        double defenderHpPercent = defender.getMaxHp() > 0 ? (defender.getCurrentHp() * 100.0 / defender.getMaxHp()) : 0.0;
+        double hpSwing = attackerHpPercent - defenderHpPercent;
+        double speedEdge = (attacker.getSpeed() - defender.getSpeed()) * 0.08;
+        double boostEdge = (attacker.getAttackStage() + attacker.getSpecialAttackStage() + attacker.getSpeedStage()
+                - defender.getAttackStage() - defender.getSpecialAttackStage() - defender.getSpeedStage()) * 14.0;
+        double offensiveEdge = bestProjectedOutgoing(attacker, defender) - bestProjectedOutgoing(defender, attacker);
+        return hpSwing + speedEdge + boostEdge + offensiveEdge;
+    }
+
+    private double bestProjectedOutgoing(BattlePokemon attacker, BattlePokemon defender) {
+        if (attacker == null || attacker.getMoves() == null) {
+            return -50.0;
+        }
+        return attacker.getMoves().stream()
+                .filter(move -> move != null)
+                .mapToDouble(move -> competitiveMoveScore(move, attacker, defender))
+                .max()
+                .orElse(-50.0);
+    }
+
+    private void applyProjectedMoveOutcome(Move move, BattlePokemon attacker, BattlePokemon defender) {
+        if (move == null || attacker == null) {
+            return;
+        }
+
+        String moveId = move.id() == null ? "" : move.id().toLowerCase();
+        if (move.category() == MoveCategory.STATUS) {
+            switch (moveId) {
+                case "dragon-dance" -> {
+                    attacker.setAttackStage(attacker.getAttackStage() + 1);
+                    attacker.setSpeedStage(attacker.getSpeedStage() + 1);
+                }
+                case "swords-dance" -> attacker.setAttackStage(attacker.getAttackStage() + 2);
+                case "nasty-plot", "tail-glow" -> attacker.setSpecialAttackStage(attacker.getSpecialAttackStage() + 2);
+                case "calm-mind" -> {
+                    attacker.setSpecialAttackStage(attacker.getSpecialAttackStage() + 1);
+                    attacker.setSpecialDefenseStage(attacker.getSpecialDefenseStage() + 1);
+                }
+                case "quiver-dance" -> {
+                    attacker.setSpecialAttackStage(attacker.getSpecialAttackStage() + 1);
+                    attacker.setSpecialDefenseStage(attacker.getSpecialDefenseStage() + 1);
+                    attacker.setSpeedStage(attacker.getSpeedStage() + 1);
+                }
+                case "recover", "roost", "synthesis", "slack-off", "soft-boiled", "milk-drink", "moonlight", "shore-up" ->
+                        attacker.setCurrentHp(Math.min(attacker.getMaxHp(), attacker.getCurrentHp() + (attacker.getMaxHp() / 2)));
+                case "rest" -> attacker.setCurrentHp(attacker.getMaxHp());
+                case "haze", "clear-smog" -> {
+                    if (defender != null) {
+                        defender.setAttackStage(0);
+                        defender.setDefenseStage(0);
+                        defender.setSpecialAttackStage(0);
+                        defender.setSpecialDefenseStage(0);
+                        defender.setSpeedStage(0);
+                    }
+                }
+                default -> {
+                }
+            }
+            return;
+        }
+
+        if (defender == null) {
+            return;
+        }
+
+        int damage = estimateDamageAmount(move, attacker, defender);
+        defender.setCurrentHp(Math.max(0, defender.getCurrentHp() - damage));
+    }
+
+    private int estimateDamageAmount(Move move, BattlePokemon attacker, BattlePokemon defender) {
+        if (move == null || attacker == null || defender == null) {
+            return 0;
+        }
+        double expectedPercent = estimateDamagePercent(move, attacker, defender);
+        if (defender.getMaxHp() <= 0) {
+            return 0;
+        }
+        return (int) Math.round((expectedPercent / 100.0) * defender.getMaxHp());
+    }
+
+    private double estimateDamagePercent(Move move, BattlePokemon attacker, BattlePokemon defender) {
+        if (move == null || attacker == null) {
+            return 0.0;
+        }
+        if (move.category() == MoveCategory.STATUS) {
+            return 0.0;
+        }
+
+        double multiplier = typeMultiplier(move, defender);
+        if (multiplier == 0.0) {
+            return 0.0;
+        }
+        double stab = hasStab(attacker, move) ? 1.5 : 1.0;
+        double attackStat = move.category() == MoveCategory.PHYSICAL ? stagedStat(attacker.getAttack(), attacker.getAttackStage())
+                : stagedStat(attacker.getSpecialAttack(), attacker.getSpecialAttackStage());
+        double defenseStat = move.category() == MoveCategory.PHYSICAL
+                ? stagedStat(defender.getDefense(), defender.getDefenseStage())
+                : stagedStat(defender.getSpecialDefense(), defender.getSpecialDefenseStage());
+        double power = Math.max(move.basePower(), 1);
+        double accuracy = move.accuracy() <= 0 ? 1.0 : move.accuracy() / 100.0;
+        double offensiveRatio = defenseStat <= 0 ? attackStat : (attackStat / defenseStat);
+        return power * accuracy * multiplier * stab * offensiveRatio * 5.5;
+    }
+
+    private double stagedStat(double baseStat, int stage) {
+        int clamped = Math.max(-6, Math.min(6, stage));
+        if (clamped >= 0) {
+            return baseStat * (2.0 + clamped) / 2.0;
+        }
+        return baseStat * 2.0 / (2.0 - clamped);
+    }
+
+    private BattlePokemon copyForEvaluation(BattlePokemon pokemon) {
+        if (pokemon == null) {
+            return null;
+        }
+        return BattlePokemon.builder()
+                .speciesId(pokemon.getSpeciesId())
+                .originalSpeciesId(pokemon.getOriginalSpeciesId())
+                .nickname(pokemon.getNickname())
+                .level(pokemon.getLevel())
+                .nature(pokemon.getNature())
+                .ivs(pokemon.getIvs())
+                .evs(pokemon.getEvs())
+                .type1(pokemon.getType1())
+                .type2(pokemon.getType2())
+                .baseType1(pokemon.getBaseType1())
+                .baseType2(pokemon.getBaseType2())
+                .maxHp(pokemon.getMaxHp())
+                .attack(pokemon.getAttack())
+                .defense(pokemon.getDefense())
+                .specialAttack(pokemon.getSpecialAttack())
+                .specialDefense(pokemon.getSpecialDefense())
+                .speed(pokemon.getSpeed())
+                .currentHp(pokemon.getCurrentHp())
+                .statusCondition(pokemon.getStatusCondition())
+                .toxicCounter(pokemon.getToxicCounter())
+                .sleepCounter(pokemon.getSleepCounter())
+                .attackStage(pokemon.getAttackStage())
+                .defenseStage(pokemon.getDefenseStage())
+                .specialAttackStage(pokemon.getSpecialAttackStage())
+                .specialDefenseStage(pokemon.getSpecialDefenseStage())
+                .speedStage(pokemon.getSpeedStage())
+                .evasionStage(pokemon.getEvasionStage())
+                .accuracyStage(pokemon.getAccuracyStage())
+                .moves(pokemon.getMoves())
+                .ability(pokemon.getAbility())
+                .heldItem(pokemon.getHeldItem())
+                .choiceLock(pokemon.getChoiceLock())
+                .build();
     }
 
     private Move getChoiceLockedMove(BattlePokemon active) {
