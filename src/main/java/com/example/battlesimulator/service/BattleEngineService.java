@@ -634,6 +634,12 @@ public class BattleEngineService {
             log.add(attacker.getNickname() + " changed its type with " + attacker.getAbility().getDisplayName() + "!");
         }
 
+        SemiInvulnerableResolution semiInvulnerableResolution = resolveSemiInvulnerability(move, defender);
+        if (semiInvulnerableResolution.blocked()) {
+            log.add(defender.getNickname() + " avoided the attack while " + semiInvulnerableResolution.stateText() + "!");
+            return;
+        }
+
         if (move.category() == com.example.battlesimulator.model.enums.MoveCategory.STATUS) {
             if (defender.getAbility() == Ability.MAGIC_BOUNCE && attacker.getAbility() != Ability.MAGIC_BOUNCE) {
                 log.add(defender.getNickname() + "'s Magic Bounce reflected the move!");
@@ -720,7 +726,7 @@ public class BattleEngineService {
                 log.add(attacker.getNickname() + "'s attack missed!");
                 return;
             }
-            int dmg = Math.max(0, Math.min(fixedDamage, defender.getCurrentHp()));
+            int dmg = Math.max(0, Math.min((int) Math.floor(fixedDamage * semiInvulnerableResolution.damageMultiplier()), defender.getCurrentHp()));
             int before = defender.getCurrentHp();
             defender.setCurrentHp(Math.max(0, before - dmg));
             if (dmg == 0) log.add("It had no effect!");
@@ -741,6 +747,7 @@ public class BattleEngineService {
         int actualHits  = 0;
         for (int hit = 0; hit < hitCount && !defender.isFainted(); hit++) {
             int damage = damageCalculator.calculateDamage(attacker, defender, move, session.getWeather());
+            damage = Math.max(0, (int) Math.floor(damage * semiInvulnerableResolution.damageMultiplier()));
             int defenderHpBefore = defender.getCurrentHp();
 
             // ── Substitute absorbs damage ──────────────────────────────────
@@ -2565,6 +2572,46 @@ public class BattleEngineService {
                  "geomancy", "freeze-shock", "ice-burn", "razor-wind" -> true;
             default -> false;
         };
+    }
+
+    private SemiInvulnerableResolution resolveSemiInvulnerability(Move move, BattlePokemon defender) {
+        String chargingMove = defender.getChargingMove();
+        if (chargingMove == null) {
+            return SemiInvulnerableResolution.NORMAL;
+        }
+
+        String moveId = move.id().toLowerCase();
+        return switch (chargingMove) {
+            case "fly", "bounce" -> {
+                if (moveId.equals("gust") || moveId.equals("twister")) {
+                    yield new SemiInvulnerableResolution(false, 2.0, "flying");
+                }
+                if (moveId.equals("thunder") || moveId.equals("hurricane")
+                        || moveId.equals("sky-uppercut") || moveId.equals("smack-down")
+                        || moveId.equals("thousand-arrows")) {
+                    yield new SemiInvulnerableResolution(false, 1.0, "flying");
+                }
+                yield new SemiInvulnerableResolution(true, 1.0, "flying");
+            }
+            case "dig" -> {
+                if (moveId.equals("earthquake") || moveId.equals("magnitude")) {
+                    yield new SemiInvulnerableResolution(false, 2.0, "underground");
+                }
+                yield new SemiInvulnerableResolution(true, 1.0, "underground");
+            }
+            case "dive" -> {
+                if (moveId.equals("surf") || moveId.equals("whirlpool")) {
+                    yield new SemiInvulnerableResolution(false, 2.0, "underwater");
+                }
+                yield new SemiInvulnerableResolution(true, 1.0, "underwater");
+            }
+            case "phantom-force", "shadow-force" -> new SemiInvulnerableResolution(true, 1.0, "vanished");
+            default -> SemiInvulnerableResolution.NORMAL;
+        };
+    }
+
+    private record SemiInvulnerableResolution(boolean blocked, double damageMultiplier, String stateText) {
+        private static final SemiInvulnerableResolution NORMAL = new SemiInvulnerableResolution(false, 1.0, "");
     }
 
     /**
