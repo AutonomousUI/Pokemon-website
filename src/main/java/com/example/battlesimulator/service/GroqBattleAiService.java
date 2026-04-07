@@ -36,7 +36,7 @@ public class GroqBattleAiService {
     private final String groqModel;
 
     public GroqBattleAiService(@Value("${groq.api.key:}") String groqApiKey,
-                               @Value("${groq.model:llama-3.3-70b-versatile}") String groqModel) {
+                               @Value("${groq.model:gpt-oss-120b}") String groqModel) {
         this.objectMapper = new ObjectMapper();
         this.groqApiKey = groqApiKey;
         this.groqModel = groqModel;

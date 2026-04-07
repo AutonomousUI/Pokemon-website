@@ -5,7 +5,7 @@
 Set these in your Render web service:
 
 - `GROQ_API_KEY`: required only if you want AI decisions powered by Groq.
-- `GROQ_MODEL`: optional, defaults to `llama-3.3-70b-versatile`.
+- `GROQ_MODEL`: optional, defaults to `gpt-oss-120b`.
 
 ## Deploy
 
