@@ -551,11 +551,11 @@ public class BattleEngineService {
             }
         }
 
-        // ── Assault Vest blocks status moves ─────────────────────────────
-        if (defender.getHeldItem() == HeldItem.ASSAULT_VEST
+        // ── Assault Vest prevents its holder from using status moves ─────
+        if (attacker.getHeldItem() == HeldItem.ASSAULT_VEST
                 && move.category() == com.example.battlesimulator.model.enums.MoveCategory.STATUS) {
             log.add(attacker.getNickname() + " used " + move.name() + "!");
-            log.add(defender.getNickname() + "'s Assault Vest blocks status moves!");
+            log.add(attacker.getNickname() + "'s Assault Vest prevents status moves!");
             return;
         }
 
