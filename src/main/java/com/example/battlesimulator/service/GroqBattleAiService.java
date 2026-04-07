@@ -27,6 +27,10 @@ import java.util.Map;
 public class GroqBattleAiService {
 
     private static final String GROQ_URL = "https://api.groq.com/openai/v1";
+    private static final int COMPETITIVE_SEARCH_DEPTH = 4;
+    private static final int COMPETITIVE_MAX_MOVES = 3;
+    private static final int COMPETITIVE_MAX_SWITCHES = 2;
+    private static final double SEARCH_WIN_SCORE = 10000.0;
 
     private final ObjectMapper objectMapper;
     private final RestClient groqClient;
@@ -257,26 +261,9 @@ public class GroqBattleAiService {
     }
 
     private PlayerAction chooseCompetitiveSwitch(String battleId, String aiPlayerId, BattleSession session) {
-        List<BattlePokemon> team = "player1".equals(aiPlayerId) ? session.getPlayer1Team() : session.getPlayer2Team();
-        BattlePokemon active = "player1".equals(aiPlayerId) ? session.getPlayer1Active() : session.getPlayer2Active();
-        BattlePokemon opponent = "player1".equals(aiPlayerId) ? session.getPlayer2Active() : session.getPlayer1Active();
-
-        Integer bestIndex = null;
-        double bestScore = Double.NEGATIVE_INFINITY;
-        for (int i = 0; i < team.size(); i++) {
-            BattlePokemon candidate = team.get(i);
-            if (candidate == null || candidate.isFainted() || candidate == active) {
-                continue;
-            }
-            double score = competitiveSwitchActionScore(candidate, opponent);
-            if (score > bestScore) {
-                bestScore = score;
-                bestIndex = i;
-            }
-        }
-
-        if (bestIndex != null) {
-            return new PlayerAction(battleId, aiPlayerId, "SWITCH", null, bestIndex);
+        SearchAction bestAction = findBestCompetitiveAction(aiPlayerId, session, true);
+        if (bestAction != null && bestAction.isSwitch()) {
+            return new PlayerAction(battleId, aiPlayerId, "SWITCH", null, bestAction.switchIndex());
         }
         return chooseFallbackSwitch(battleId, aiPlayerId, session);
     }
@@ -329,29 +316,41 @@ public class GroqBattleAiService {
             return new PlayerAction(battleId, aiPlayerId, "MOVE", forcedMove.id(), null);
         }
 
-        Move bestMove = null;
-        double bestMoveScore = Double.NEGATIVE_INFINITY;
-        for (Move move : active.getMoves()) {
-            if (move == null) {
-                continue;
+        SearchAction bestAction = findBestCompetitiveAction(aiPlayerId, session, false);
+        if (bestAction == null) {
+            return chooseFallbackMove(battleId, aiPlayerId, session);
+        }
+        if (bestAction.isSwitch()) {
+            return new PlayerAction(battleId, aiPlayerId, "SWITCH", null, bestAction.switchIndex());
+        }
+        return new PlayerAction(battleId, aiPlayerId, "MOVE", bestAction.moveId(), null);
+    }
+
+    private SearchAction findBestCompetitiveAction(String aiPlayerId, BattleSession session, boolean forceSwitch) {
+        SearchState root = buildSearchState(aiPlayerId, session);
+        if (root == null) {
+            return null;
+        }
+
+        List<SearchAction> actions = generateSearchActions(root, forceSwitch);
+        if (actions.isEmpty()) {
+            return null;
+        }
+
+        SearchAction bestAction = null;
+        double bestValue = Double.NEGATIVE_INFINITY;
+        double alpha = Double.NEGATIVE_INFINITY;
+        double beta = Double.POSITIVE_INFINITY;
+        for (SearchAction action : actions) {
+            SearchState next = applySearchAction(root, action);
+            double value = minimax(next, COMPETITIVE_SEARCH_DEPTH - 1, alpha, beta);
+            if (value > bestValue) {
+                bestValue = value;
+                bestAction = action;
             }
-            double score = competitiveMoveActionScore(move, active, defender);
-            if (score > bestMoveScore) {
-                bestMoveScore = score;
-                bestMove = move;
-            }
+            alpha = Math.max(alpha, bestValue);
         }
-
-        if (bestMove == null) {
-            return chooseCompetitiveSwitch(battleId, aiPlayerId, session);
-        }
-
-        PlayerAction bestSwitch = chooseCompetitiveSwitch(battleId, aiPlayerId, session);
-        if (shouldTakeCompetitiveSwitch(active, defender, bestMoveScore, bestSwitch, aiPlayerId, session)) {
-            return bestSwitch;
-        }
-
-        return new PlayerAction(battleId, aiPlayerId, "MOVE", bestMove.id(), null);
+        return bestAction;
     }
 
     private double competitiveMoveActionScore(Move move, BattlePokemon attacker, BattlePokemon defender) {
@@ -387,6 +386,298 @@ public class GroqBattleAiService {
         double opponentReply = estimateBestIncomingThreat(projectedOpponent, projectedCandidate);
         double boardAdvantage = projectedBoardAdvantage(projectedCandidate, projectedOpponent);
         return immediate + (boardAdvantage * 0.25) - (opponentReply * 0.45);
+    }
+
+    private double minimax(SearchState state, int depth, double alpha, double beta) {
+        if (depth <= 0 || isSearchTerminal(state)) {
+            return evaluateSearchState(state);
+        }
+
+        List<SearchAction> actions = generateSearchActions(state, false);
+        if (actions.isEmpty()) {
+            return evaluateSearchState(state);
+        }
+
+        if (state.aiTurn()) {
+            double best = Double.NEGATIVE_INFINITY;
+            for (SearchAction action : actions) {
+                best = Math.max(best, minimax(applySearchAction(state, action), depth - 1, alpha, beta));
+                alpha = Math.max(alpha, best);
+                if (beta <= alpha) {
+                    break;
+                }
+            }
+            return best;
+        }
+
+        double best = Double.POSITIVE_INFINITY;
+        for (SearchAction action : actions) {
+            best = Math.min(best, minimax(applySearchAction(state, action), depth - 1, alpha, beta));
+            beta = Math.min(beta, best);
+            if (beta <= alpha) {
+                break;
+            }
+        }
+        return best;
+    }
+
+    private boolean isSearchTerminal(SearchState state) {
+        return !hasLivingSide(state.aiActive(), state.aiBench())
+                || !hasLivingSide(state.opponentActive(), state.opponentBench());
+    }
+
+    private boolean hasLivingSide(BattlePokemon active, List<BenchPokemon> bench) {
+        if (active != null && !active.isFainted()) {
+            return true;
+        }
+        return bench != null && bench.stream().anyMatch(entry -> entry.pokemon() != null && !entry.pokemon().isFainted());
+    }
+
+    private double evaluateSearchState(SearchState state) {
+        boolean aiAlive = hasLivingSide(state.aiActive(), state.aiBench());
+        boolean oppAlive = hasLivingSide(state.opponentActive(), state.opponentBench());
+        if (!aiAlive && !oppAlive) {
+            return 0.0;
+        }
+        if (!aiAlive) {
+            return -SEARCH_WIN_SCORE;
+        }
+        if (!oppAlive) {
+            return SEARCH_WIN_SCORE;
+        }
+
+        double aiTeam = teamMaterialScore(state.aiActive(), state.aiBench());
+        double oppTeam = teamMaterialScore(state.opponentActive(), state.opponentBench());
+        double activeBoard = projectedBoardAdvantage(state.aiActive(), state.opponentActive()) * 0.75;
+        return (aiTeam - oppTeam) + activeBoard;
+    }
+
+    private double teamMaterialScore(BattlePokemon active, List<BenchPokemon> bench) {
+        double score = pokemonMaterialScore(active, true);
+        if (bench != null) {
+            for (BenchPokemon entry : bench) {
+                score += pokemonMaterialScore(entry.pokemon(), false);
+            }
+        }
+        return score;
+    }
+
+    private double pokemonMaterialScore(BattlePokemon pokemon, boolean active) {
+        if (pokemon == null || pokemon.isFainted()) {
+            return 0.0;
+        }
+        double hpPercent = pokemon.getMaxHp() > 0 ? (pokemon.getCurrentHp() * 100.0 / pokemon.getMaxHp()) : 0.0;
+        double statValue = (pokemon.getAttack() + pokemon.getDefense() + pokemon.getSpecialAttack()
+                + pokemon.getSpecialDefense() + pokemon.getSpeed()) * 0.04;
+        double boostValue = (pokemon.getAttackStage() + pokemon.getDefenseStage() + pokemon.getSpecialAttackStage()
+                + pokemon.getSpecialDefenseStage() + pokemon.getSpeedStage()) * 6.0;
+        return hpPercent + statValue + boostValue + (active ? 20.0 : 0.0);
+    }
+
+    private List<SearchAction> generateSearchActions(SearchState state, boolean forceSwitch) {
+        BattlePokemon active = state.aiTurn() ? state.aiActive() : state.opponentActive();
+        BattlePokemon defender = state.aiTurn() ? state.opponentActive() : state.aiActive();
+        List<BenchPokemon> bench = state.aiTurn() ? state.aiBench() : state.opponentBench();
+
+        if (active == null || active.isFainted()) {
+            return generateForcedSwitchActions(bench);
+        }
+        if (forceSwitch) {
+            return generateForcedSwitchActions(bench);
+        }
+
+        List<SearchAction> actions = new ArrayList<>();
+        Move lockedMove = getChoiceLockedMove(active);
+        if (lockedMove != null) {
+            actions.add(SearchAction.move(lockedMove.id(), competitiveMoveActionScore(lockedMove, active, defender)));
+        } else {
+            List<SearchAction> moves = active.getMoves().stream()
+                    .filter(move -> move != null)
+                    .map(move -> SearchAction.move(move.id(), competitiveMoveActionScore(move, active, defender)))
+                    .sorted(Comparator.comparingDouble(SearchAction::orderingScore).reversed())
+                    .limit(COMPETITIVE_MAX_MOVES)
+                    .toList();
+            actions.addAll(moves);
+        }
+
+        if (!active.isTrapped()) {
+            List<SearchAction> switches = bench.stream()
+                    .filter(entry -> entry.pokemon() != null && !entry.pokemon().isFainted())
+                    .map(entry -> SearchAction.switchTo(entry.teamIndex(), competitiveSwitchActionScore(entry.pokemon(), defender)))
+                    .sorted(Comparator.comparingDouble(SearchAction::orderingScore).reversed())
+                    .limit(COMPETITIVE_MAX_SWITCHES)
+                    .toList();
+            actions.addAll(switches);
+        }
+
+        actions.sort(Comparator.comparingDouble(SearchAction::orderingScore).reversed());
+        return actions;
+    }
+
+    private List<SearchAction> generateForcedSwitchActions(List<BenchPokemon> bench) {
+        if (bench == null) {
+            return List.of();
+        }
+        return bench.stream()
+                .filter(entry -> entry.pokemon() != null && !entry.pokemon().isFainted())
+                .map(entry -> SearchAction.switchTo(entry.teamIndex(), 0.0))
+                .toList();
+    }
+
+    private SearchState applySearchAction(SearchState state, SearchAction action) {
+        SearchState next = copySearchState(state);
+        boolean aiSide = next.aiTurn();
+        BattlePokemon attacker = aiSide ? next.aiActive() : next.opponentActive();
+        BattlePokemon defender = aiSide ? next.opponentActive() : next.aiActive();
+        List<BenchPokemon> actorBench = aiSide ? next.aiBench() : next.opponentBench();
+        List<BenchPokemon> defenderBench = aiSide ? next.opponentBench() : next.aiBench();
+
+        if (action.isSwitch()) {
+            performProjectedSwitch(next, aiSide, action.switchIndex());
+            next.setAiTurn(!next.aiTurn());
+            return next;
+        }
+
+        Move move = findMoveById(attacker, action.moveId());
+        applyProjectedMoveOutcome(move, attacker, defender);
+        if (defender != null && defender.isFainted()) {
+            if (!bringInFirstHealthy(defenderBench, next, !aiSide)) {
+                if (aiSide) {
+                    next.setOpponentActive(defender);
+                } else {
+                    next.setAiActive(defender);
+                }
+            }
+        }
+        next.setAiTurn(!next.aiTurn());
+        return next;
+    }
+
+    private void performProjectedSwitch(SearchState state, boolean aiSide, int switchIndex) {
+        List<BenchPokemon> bench = aiSide ? state.aiBench() : state.opponentBench();
+        BattlePokemon current = aiSide ? state.aiActive() : state.opponentActive();
+        int targetPos = findBenchPosition(bench, switchIndex);
+        if (targetPos < 0) {
+            return;
+        }
+        BenchPokemon chosen = bench.remove(targetPos);
+        if (current != null && !current.isFainted()) {
+            bench.add(new BenchPokemon(switchIndexOfCurrent(current, bench, switchIndex), current));
+        }
+        if (aiSide) {
+            state.setAiActive(chosen.pokemon());
+        } else {
+            state.setOpponentActive(chosen.pokemon());
+        }
+    }
+
+    private int switchIndexOfCurrent(BattlePokemon current, List<BenchPokemon> bench, int fallback) {
+        return bench.stream()
+                .map(BenchPokemon::teamIndex)
+                .max(Integer::compareTo)
+                .orElse(fallback + 10) + 1;
+    }
+
+    private boolean bringInFirstHealthy(List<BenchPokemon> bench, SearchState state, boolean aiSide) {
+        if (bench == null) {
+            return false;
+        }
+        for (int i = 0; i < bench.size(); i++) {
+            BenchPokemon option = bench.get(i);
+            if (option.pokemon() != null && !option.pokemon().isFainted()) {
+                bench.remove(i);
+                if (aiSide) {
+                    state.setAiActive(option.pokemon());
+                } else {
+                    state.setOpponentActive(option.pokemon());
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private int findBenchPosition(List<BenchPokemon> bench, int teamIndex) {
+        if (bench == null) {
+            return -1;
+        }
+        for (int i = 0; i < bench.size(); i++) {
+            if (bench.get(i).teamIndex() == teamIndex) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private Move findMoveById(BattlePokemon attacker, String moveId) {
+        if (attacker == null || attacker.getMoves() == null || moveId == null) {
+            return null;
+        }
+        return attacker.getMoves().stream()
+                .filter(move -> move != null && move.id().equalsIgnoreCase(moveId))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private SearchState buildSearchState(String aiPlayerId, BattleSession session) {
+        boolean aiIsPlayerOne = "player1".equals(aiPlayerId);
+        List<BattlePokemon> aiTeam = aiIsPlayerOne ? session.getPlayer1Team() : session.getPlayer2Team();
+        List<BattlePokemon> oppTeam = aiIsPlayerOne ? session.getPlayer2Team() : session.getPlayer1Team();
+        int aiActiveIndex = aiIsPlayerOne ? session.getPlayer1ActiveIndex() : session.getPlayer2ActiveIndex();
+        int oppActiveIndex = aiIsPlayerOne ? session.getPlayer2ActiveIndex() : session.getPlayer1ActiveIndex();
+
+        return new SearchState(
+                copyForEvaluation(getTeamPokemon(aiTeam, aiActiveIndex)),
+                copyBench(aiTeam, aiActiveIndex),
+                copyForEvaluation(getTeamPokemon(oppTeam, oppActiveIndex)),
+                copyBench(oppTeam, oppActiveIndex),
+                true
+        );
+    }
+
+    private BattlePokemon getTeamPokemon(List<BattlePokemon> team, int index) {
+        if (team == null || index < 0 || index >= team.size()) {
+            return null;
+        }
+        return team.get(index);
+    }
+
+    private List<BenchPokemon> copyBench(List<BattlePokemon> team, int activeIndex) {
+        List<BenchPokemon> bench = new ArrayList<>();
+        if (team == null) {
+            return bench;
+        }
+        for (int i = 0; i < team.size(); i++) {
+            if (i == activeIndex) {
+                continue;
+            }
+            BattlePokemon pokemon = team.get(i);
+            if (pokemon != null) {
+                bench.add(new BenchPokemon(i, copyForEvaluation(pokemon)));
+            }
+        }
+        return bench;
+    }
+
+    private SearchState copySearchState(SearchState state) {
+        return new SearchState(
+                copyForEvaluation(state.aiActive()),
+                copyBenchEntries(state.aiBench()),
+                copyForEvaluation(state.opponentActive()),
+                copyBenchEntries(state.opponentBench()),
+                state.aiTurn()
+        );
+    }
+
+    private List<BenchPokemon> copyBenchEntries(List<BenchPokemon> bench) {
+        List<BenchPokemon> copied = new ArrayList<>();
+        if (bench == null) {
+            return copied;
+        }
+        for (BenchPokemon entry : bench) {
+            copied.add(new BenchPokemon(entry.teamIndex(), copyForEvaluation(entry.pokemon())));
+        }
+        return copied;
     }
 
     private double projectedBoardAdvantage(BattlePokemon attacker, BattlePokemon defender) {
@@ -815,5 +1106,49 @@ public class GroqBattleAiService {
         Type t2 = defender.getType2() == null ? Type.NONE : defender.getType2();
         return TypeChart.getMultiplier(move.type(), defender.getType1())
                 * TypeChart.getMultiplier(move.type(), t2);
+    }
+
+    private record BenchPokemon(int teamIndex, BattlePokemon pokemon) {
+    }
+
+    private static final class SearchState {
+        private BattlePokemon aiActive;
+        private List<BenchPokemon> aiBench;
+        private BattlePokemon opponentActive;
+        private List<BenchPokemon> opponentBench;
+        private boolean aiTurn;
+
+        private SearchState(BattlePokemon aiActive, List<BenchPokemon> aiBench,
+                            BattlePokemon opponentActive, List<BenchPokemon> opponentBench,
+                            boolean aiTurn) {
+            this.aiActive = aiActive;
+            this.aiBench = aiBench;
+            this.opponentActive = opponentActive;
+            this.opponentBench = opponentBench;
+            this.aiTurn = aiTurn;
+        }
+
+        public BattlePokemon aiActive() { return aiActive; }
+        public List<BenchPokemon> aiBench() { return aiBench; }
+        public BattlePokemon opponentActive() { return opponentActive; }
+        public List<BenchPokemon> opponentBench() { return opponentBench; }
+        public boolean aiTurn() { return aiTurn; }
+        public void setAiActive(BattlePokemon aiActive) { this.aiActive = aiActive; }
+        public void setOpponentActive(BattlePokemon opponentActive) { this.opponentActive = opponentActive; }
+        public void setAiTurn(boolean aiTurn) { this.aiTurn = aiTurn; }
+    }
+
+    private record SearchAction(String actionType, String moveId, Integer switchIndex, double orderingScore) {
+        private static SearchAction move(String moveId, double orderingScore) {
+            return new SearchAction("MOVE", moveId, null, orderingScore);
+        }
+
+        private static SearchAction switchTo(int switchIndex, double orderingScore) {
+            return new SearchAction("SWITCH", null, switchIndex, orderingScore);
+        }
+
+        private boolean isSwitch() {
+            return "SWITCH".equals(actionType);
+        }
     }
 }
