@@ -28,8 +28,6 @@ public class GroqBattleAiService {
 
     private static final String GROQ_URL = "https://api.groq.com/openai/v1";
     private static final int COMPETITIVE_SEARCH_DEPTH = 4;
-    private static final int COMPETITIVE_MAX_MOVES = 3;
-    private static final int COMPETITIVE_MAX_SWITCHES = 2;
     private static final double SEARCH_WIN_SCORE = 10000.0;
 
     private final ObjectMapper objectMapper;
@@ -495,7 +493,6 @@ public class GroqBattleAiService {
                     .filter(move -> move != null)
                     .map(move -> SearchAction.move(move.id(), competitiveMoveActionScore(move, active, defender)))
                     .sorted(Comparator.comparingDouble(SearchAction::orderingScore).reversed())
-                    .limit(COMPETITIVE_MAX_MOVES)
                     .toList();
             actions.addAll(moves);
         }
@@ -505,7 +502,6 @@ public class GroqBattleAiService {
                     .filter(entry -> entry.pokemon() != null && !entry.pokemon().isFainted())
                     .map(entry -> SearchAction.switchTo(entry.teamIndex(), competitiveSwitchActionScore(entry.pokemon(), defender)))
                     .sorted(Comparator.comparingDouble(SearchAction::orderingScore).reversed())
-                    .limit(COMPETITIVE_MAX_SWITCHES)
                     .toList();
             actions.addAll(switches);
         }
