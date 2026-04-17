@@ -5,6 +5,7 @@
   <title>Pokemon Battle Simulator</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+  <script src="https://unpkg.com/three@0.161.0/build/three.min.js"></script>
   <style>
     :root {
       --bg: #0f1117;
@@ -50,6 +51,40 @@
     .move-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     #arena { display: none; }
     .arena-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .three-card { padding: 10px; overflow: hidden; }
+    .three-wrap { position: relative; height: 360px; border-radius: 18px; overflow: hidden; background:
+      radial-gradient(circle at top, rgba(94,162,255,.14), transparent 34%),
+      linear-gradient(180deg, #0d1320, #09111c 50%, #0c1624); }
+    #battle3dCanvas { width: 100%; height: 100%; display: block; }
+    .three-overlay { position: absolute; inset: 0; pointer-events: none; }
+    .three-label {
+      position: absolute;
+      top: 18px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(12,17,29,.72);
+      border: 1px solid rgba(126,164,255,.28);
+      backdrop-filter: blur(10px);
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+    .three-label.left { left: 18px; }
+    .three-label.right { right: 18px; }
+    .three-hint {
+      position: absolute;
+      left: 18px;
+      bottom: 16px;
+      color: rgba(238,242,255,.7);
+      font-size: 12px;
+      letter-spacing: .04em;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(8,12,20,.58);
+      border: 1px solid rgba(150,160,187,.18);
+      backdrop-filter: blur(10px);
+    }
     .team-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid transparent; border-radius: 10px; margin-bottom: 6px; background: rgba(255,255,255,.02); }
     .team-row.active { border-color: var(--accent); background: rgba(94,162,255,.10); }
     .team-row.fainted { opacity: .45; }
@@ -262,6 +297,18 @@
       <button class="btn btn-ghost" onclick="backToHomePage()">Back to Home Page</button>
     </div>
 
+    <div class="card three-card">
+      <div class="card-title">3D Stadium</div>
+      <div class="three-wrap">
+        <canvas id="battle3dCanvas"></canvas>
+        <div class="three-overlay">
+          <div id="threeLabelLeft" class="three-label left">Player 1</div>
+          <div id="threeLabelRight" class="three-label right">Player 2</div>
+          <div class="three-hint">Three.js arena prototype synced to the battle log</div>
+        </div>
+      </div>
+    </div>
+
     <div class="battle-top">
       <div class="active-box">
         <div class="active-stage">
@@ -332,6 +379,7 @@
   let pendingSnapshotRefresh = null;
   let processedLogCount = 0;
   let animationQueue = Promise.resolve();
+  let threeArena = null;
   const TEAM_SIZE = 6;
   const slotMoveCache = { player1: {}, player2: {} };
 
@@ -1105,6 +1153,7 @@
         stompClient.subscribe('/topic/battle/' + battleId, message => handleUpdate(JSON.parse(message.body)));
         document.getElementById('setup').style.display = 'none';
         document.getElementById('arena').style.display = 'block';
+        ensureThreeArena();
         logLine(`Connected to ${battleId} as ${battleMode === 'pvp' ? currentUsername : playerId}`);
         await fetchSnapshot();
         resolve();
@@ -1174,6 +1223,235 @@
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  function threeSpriteUrl(speciesId, back) {
+    const species = normalizeSpeciesName(speciesId || 'pikachu');
+    const folder = back ? 'gen5-back' : 'gen5';
+    return `https://play.pokemonshowdown.com/sprites/${folder}/${species}.png`;
+  }
+
+  function ensureThreeArena() {
+    if (threeArena || !window.THREE) return;
+    const canvas = document.getElementById('battle3dCanvas');
+    if (!canvas) return;
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x09111c, 16, 34);
+
+    const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+    camera.position.set(0, 6.2, 16);
+    camera.lookAt(0, 2.6, 0);
+
+    const hemi = new THREE.HemisphereLight(0xa6d5ff, 0x112033, 1.55);
+    scene.add(hemi);
+    const spot = new THREE.SpotLight(0xffffff, 2.1, 60, Math.PI / 5, 0.45, 1);
+    spot.position.set(0, 14, 6);
+    spot.target.position.set(0, 0, 0);
+    scene.add(spot);
+    scene.add(spot.target);
+
+    const stadium = new THREE.Group();
+    scene.add(stadium);
+
+    const floor = new THREE.Mesh(
+      new THREE.CylinderGeometry(8.4, 9.6, 0.65, 48),
+      new THREE.MeshStandardMaterial({ color: 0x1a3347, roughness: 0.85, metalness: 0.08 })
+    );
+    floor.position.y = -0.4;
+    stadium.add(floor);
+
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(7.6, 0.28, 12, 60),
+      new THREE.MeshStandardMaterial({ color: 0x5ea2ff, emissive: 0x143352, emissiveIntensity: 1.2 })
+    );
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = -0.02;
+    stadium.add(ring);
+
+    const platformMaterial = new THREE.MeshStandardMaterial({ color: 0x24364b, roughness: 0.72, metalness: 0.1 });
+    const leftPlatform = new THREE.Mesh(new THREE.CylinderGeometry(2.35, 2.55, 0.45, 32), platformMaterial);
+    leftPlatform.position.set(-4.5, 0.05, 1.6);
+    stadium.add(leftPlatform);
+    const rightPlatform = new THREE.Mesh(new THREE.CylinderGeometry(2.35, 2.55, 0.45, 32), platformMaterial);
+    rightPlatform.position.set(4.5, 0.05, -1.6);
+    stadium.add(rightPlatform);
+
+    const crowd = new THREE.Mesh(
+      new THREE.TorusGeometry(12.2, 2.9, 18, 60),
+      new THREE.MeshStandardMaterial({ color: 0x0f2033, emissive: 0x06111f, roughness: 1 })
+    );
+    crowd.rotation.x = Math.PI / 2;
+    crowd.position.y = 2.2;
+    stadium.add(crowd);
+
+    function makeBattler(x, z, facing) {
+      const group = new THREE.Group();
+      group.position.set(x, 0.25, z);
+      const shadow = new THREE.Mesh(
+        new THREE.CircleGeometry(1.25, 24),
+        new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.24 })
+      );
+      shadow.rotation.x = -Math.PI / 2;
+      shadow.position.y = 0.01;
+      group.add(shadow);
+
+      const frame = new THREE.Mesh(
+        new THREE.PlaneGeometry(3.8, 3.8),
+        new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 })
+      );
+      frame.position.y = 2.15;
+      frame.rotation.y = facing;
+      group.add(frame);
+
+      scene.add(group);
+      return { group, frame, shadow, texture: null, flash: 0, knockback: 0, faint: 0 };
+    }
+
+    threeArena = {
+      renderer,
+      scene,
+      camera,
+      stadium,
+      ring,
+      left: makeBattler(-4.5, 1.6, Math.PI / 9),
+      right: makeBattler(4.5, -1.6, -Math.PI + Math.PI / 9),
+      projectiles: [],
+      clock: new THREE.Clock(),
+      pulse: 0
+    };
+
+    function resizeThreeArena() {
+      if (!threeArena) return;
+      const wrap = canvas.parentElement;
+      const width = wrap.clientWidth;
+      const height = wrap.clientHeight;
+      threeArena.renderer.setSize(width, height, false);
+      threeArena.camera.aspect = width / height;
+      threeArena.camera.updateProjectionMatrix();
+    }
+
+    function renderThreeArena() {
+      if (!threeArena) return;
+      const dt = Math.min(threeArena.clock.getDelta(), 0.05);
+      threeArena.pulse += dt;
+      threeArena.ring.material.emissiveIntensity = 0.95 + Math.sin(threeArena.pulse * 2.2) * 0.18;
+      updateBattlerVisual(threeArena.left, dt, -4.5, 1.6);
+      updateBattlerVisual(threeArena.right, dt, 4.5, -1.6);
+      updateProjectiles(dt);
+      threeArena.renderer.render(threeArena.scene, threeArena.camera);
+      requestAnimationFrame(renderThreeArena);
+    }
+
+    window.addEventListener('resize', resizeThreeArena);
+    resizeThreeArena();
+    renderThreeArena();
+  }
+
+  function updateBattlerVisual(battler, dt, baseX, baseZ) {
+    if (!battler) return;
+    if (battler.flash > 0) {
+      battler.flash = Math.max(0, battler.flash - dt * 2.8);
+    }
+    if (battler.knockback > 0) {
+      battler.knockback = Math.max(0, battler.knockback - dt * 2.2);
+    }
+    if (battler.faint > 0) {
+      battler.faint = Math.min(1, battler.faint + dt * 0.7);
+    } else {
+      battler.faint = 0;
+    }
+    const bob = Math.sin(performance.now() * 0.0022 + baseX) * 0.07;
+    battler.group.position.x = baseX + (baseX < 0 ? 1 : -1) * battler.knockback * 0.9;
+    battler.group.position.z = baseZ;
+    battler.group.position.y = 0.25 + bob - battler.faint * 0.7;
+    battler.frame.position.y = 2.15 - battler.faint * 0.45;
+    const scale = 1 - battler.faint * 0.35;
+    battler.frame.scale.set(scale, scale, scale);
+    battler.shadow.material.opacity = 0.24 * (1 - battler.faint * 0.7);
+    if (battler.frame.material) {
+      battler.frame.material.opacity = 1 - battler.faint * 0.75;
+      battler.frame.material.color.setScalar(1 + battler.flash * 0.8);
+    }
+  }
+
+  function updateProjectiles(dt) {
+    if (!threeArena) return;
+    threeArena.projectiles = threeArena.projectiles.filter(projectile => {
+      projectile.progress += dt / projectile.duration;
+      const t = Math.min(projectile.progress, 1);
+      projectile.mesh.position.lerpVectors(projectile.start, projectile.end, t);
+      projectile.mesh.position.y += Math.sin(t * Math.PI) * projectile.arc;
+      projectile.mesh.scale.setScalar(0.55 + t * 0.8);
+      projectile.material.opacity = 1 - Math.max(0, t - 0.55) / 0.45;
+      if (t >= 1) {
+        threeArena.scene.remove(projectile.mesh);
+        projectile.geometry.dispose();
+        projectile.material.dispose();
+        return false;
+      }
+      return true;
+    });
+  }
+
+  function setThreeBattlerSprite(side, speciesId) {
+    if (!threeArena || !window.THREE) return;
+    const battler = side === 'p1' ? threeArena.left : threeArena.right;
+    const loader = new THREE.TextureLoader();
+    loader.setCrossOrigin('anonymous');
+    loader.load(threeSpriteUrl(speciesId, side === 'p1'), texture => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      if (battler.frame.material) battler.frame.material.dispose();
+      battler.texture = texture;
+      battler.frame.material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, alphaTest: 0.06 });
+    });
+  }
+
+  function updateThreeBattleScene(p1, p2) {
+    ensureThreeArena();
+    if (!threeArena) return;
+    if (p1?.speciesId) setThreeBattlerSprite('p1', p1.speciesId);
+    if (p2?.speciesId) setThreeBattlerSprite('p2', p2.speciesId);
+    document.getElementById('threeLabelLeft').textContent = p1?.nickname || 'Player 1';
+    document.getElementById('threeLabelRight').textContent = p2?.nickname || ((battleMode === 'ai' || battleMode === 'competitive') ? 'AI' : 'Player 2');
+    threeArena.left.faint = p1?.fainted ? 1 : 0;
+    threeArena.right.faint = p2?.fainted ? 1 : 0;
+  }
+
+  function playThreeAttackAnimation(attackerSide, moveName) {
+    ensureThreeArena();
+    if (!threeArena || !window.THREE) return;
+    const attacker = attackerSide === 'p1' ? threeArena.left : threeArena.right;
+    const defender = attackerSide === 'p1' ? threeArena.right : threeArena.left;
+    const visual = inferMoveVisual(moveName);
+    attacker.knockback = -0.42;
+    defender.flash = 0.9;
+    defender.knockback = 0.55;
+
+    const geometry = new THREE.SphereGeometry(0.32, 16, 16);
+    const material = new THREE.MeshBasicMaterial({
+      color: visual.color,
+      transparent: true,
+      opacity: visual.type === 'status' ? 0.7 : 0.95
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    const start = attacker.group.position.clone().add(new THREE.Vector3(attackerSide === 'p1' ? 1.2 : -1.2, 2.4, 0));
+    const end = defender.group.position.clone().add(new THREE.Vector3(attackerSide === 'p1' ? -0.8 : 0.8, 2.2, 0));
+    mesh.position.copy(start);
+    threeArena.scene.add(mesh);
+    threeArena.projectiles.push({
+      mesh,
+      geometry,
+      material,
+      start,
+      end,
+      progress: 0,
+      duration: visual.type === 'physical' ? 0.34 : 0.48,
+      arc: visual.type === 'status' ? 0.9 : 0.45
+    });
+  }
+
   function activeWrap(side) {
     return document.getElementById(`${side}ActiveWrap`);
   }
@@ -1238,6 +1516,7 @@
     clearAnimationClasses(defenderSide);
 
     const visual = inferMoveVisual(moveName);
+    playThreeAttackAnimation(attackerSide, moveName);
     attacker.classList.add(attackerSide === 'p1' ? 'attacking-left' : 'attacking-right');
     spawnProjectile(attackerSide, visual);
     await wait(220);
@@ -1302,6 +1581,7 @@
     document.getElementById('p2ActiveName').textContent = p2?.nickname || ((battleMode === 'ai' || battleMode === 'competitive') ? 'AI' : 'Player 2');
     document.getElementById('p1ActiveHp').textContent = p1 ? `${p1.currentHp}/${p1.maxHp} HP` : '';
     document.getElementById('p2ActiveHp').textContent = p2 ? `${p2.currentHp}/${p2.maxHp} HP` : '';
+    updateThreeBattleScene(p1, p2);
 
     renderTeamRows('team1Rows', data.player1Team, data.player1ActiveIndex);
     renderTeamRows('team2Rows', data.player2Team, data.player2ActiveIndex);
