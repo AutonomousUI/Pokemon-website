@@ -60,7 +60,92 @@
     .meta { font-size: 12px; color: var(--muted); }
     .battle-top { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
     .active-box { text-align: center; background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 16px; padding: 16px; }
-    .active-box img { width: 110px; height: 110px; image-rendering: pixelated; }
+    .active-stage { position: relative; width: 170px; height: 130px; margin: 0 auto; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .active-stage::before {
+      content: '';
+      position: absolute;
+      inset: auto 22px 12px;
+      height: 18px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(94,162,255,.28), rgba(94,162,255,0));
+      filter: blur(10px);
+      opacity: .7;
+    }
+    .active-sprite-wrap { position: relative; width: 110px; height: 110px; display: flex; align-items: center; justify-content: center; z-index: 2; }
+    .active-box img { width: 110px; height: 110px; image-rendering: pixelated; transform-origin: 50% 70%; }
+    .active-fx { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 3; }
+    .active-sprite-wrap.attacking-left img { animation: attackLeft .52s ease-in-out; }
+    .active-sprite-wrap.attacking-right img { animation: attackRight .52s ease-in-out; }
+    .active-sprite-wrap.recoiling img { animation: recoilPulse .45s ease-out; }
+    .active-sprite-wrap.hit img { animation: hitShake .48s ease-in-out; filter: drop-shadow(0 0 12px rgba(255,130,130,.65)); }
+    .active-sprite-wrap.fainted img { animation: faintDrop .9s ease forwards; }
+    .active-fx.flash::after {
+      content: '';
+      position: absolute;
+      inset: 18px;
+      border-radius: 18px;
+      background: radial-gradient(circle, rgba(255,255,255,.34), rgba(255,255,255,0));
+      animation: fxFlash .45s ease-out;
+    }
+    .fx-projectile {
+      position: absolute;
+      top: 48%;
+      width: 22px;
+      height: 22px;
+      margin-top: -11px;
+      border-radius: 999px;
+      opacity: 0;
+      filter: blur(.2px);
+      box-shadow: 0 0 18px currentColor;
+      animation: projectileLeft .55s ease-out forwards;
+    }
+    .fx-projectile.from-right { animation-name: projectileRight; }
+    .fx-projectile.physical { width: 30px; height: 12px; margin-top: -6px; border-radius: 999px; }
+    .fx-projectile.status { width: 16px; height: 16px; border: 2px solid currentColor; background: transparent !important; }
+    .fx-projectile.multi { box-shadow: 0 0 10px currentColor, 24px 0 0 -6px currentColor, -24px 0 0 -6px currentColor; }
+    @keyframes attackLeft {
+      0% { transform: translateX(0) scale(1); }
+      40% { transform: translateX(24px) translateY(-4px) scale(1.08); }
+      100% { transform: translateX(0) scale(1); }
+    }
+    @keyframes attackRight {
+      0% { transform: translateX(0) scale(1); }
+      40% { transform: translateX(-24px) translateY(-4px) scale(1.08); }
+      100% { transform: translateX(0) scale(1); }
+    }
+    @keyframes hitShake {
+      0% { transform: translateX(0) scale(1); }
+      18% { transform: translateX(-10px) scale(1.03); }
+      36% { transform: translateX(9px) scale(.98); }
+      54% { transform: translateX(-6px) scale(1.02); }
+      72% { transform: translateX(5px) scale(.99); }
+      100% { transform: translateX(0) scale(1); }
+    }
+    @keyframes recoilPulse {
+      0% { transform: scale(1); filter: brightness(1); }
+      50% { transform: scale(.92); filter: brightness(1.25); }
+      100% { transform: scale(1); filter: brightness(1); }
+    }
+    @keyframes faintDrop {
+      0% { transform: translateY(0); opacity: 1; }
+      65% { transform: translateY(18px); opacity: .55; }
+      100% { transform: translateY(28px); opacity: .18; }
+    }
+    @keyframes fxFlash {
+      0% { opacity: 0; transform: scale(.78); }
+      35% { opacity: 1; transform: scale(1.04); }
+      100% { opacity: 0; transform: scale(1.18); }
+    }
+    @keyframes projectileLeft {
+      0% { left: 22px; opacity: 0; transform: translateX(0) scale(.55); }
+      18% { opacity: 1; }
+      100% { left: calc(100% - 44px); opacity: 0; transform: translateX(0) scale(1.25); }
+    }
+    @keyframes projectileRight {
+      0% { left: calc(100% - 44px); opacity: 0; transform: translateX(0) scale(.55); }
+      18% { opacity: 1; }
+      100% { left: 22px; opacity: 0; transform: translateX(0) scale(1.25); }
+    }
     .active-name { font-weight: 800; margin-top: 8px; }
     .winner { display: none; text-align: center; font-size: 26px; font-weight: 800; color: var(--warn); margin-bottom: 16px; }
     .status { margin-bottom: 14px; padding: 10px 12px; border-radius: 10px; display: none; }
@@ -179,12 +264,22 @@
 
     <div class="battle-top">
       <div class="active-box">
-        <img id="p1ActiveSprite" alt="">
+        <div class="active-stage">
+          <div id="p1ActiveFx" class="active-fx"></div>
+          <div id="p1ActiveWrap" class="active-sprite-wrap">
+            <img id="p1ActiveSprite" alt="">
+          </div>
+        </div>
         <div id="p1ActiveName" class="active-name">Player 1</div>
         <div id="p1ActiveHp" class="meta"></div>
       </div>
       <div class="active-box">
-        <img id="p2ActiveSprite" alt="">
+        <div class="active-stage">
+          <div id="p2ActiveFx" class="active-fx"></div>
+          <div id="p2ActiveWrap" class="active-sprite-wrap">
+            <img id="p2ActiveSprite" alt="">
+          </div>
+        </div>
         <div id="p2ActiveName" class="active-name">Player 2</div>
         <div id="p2ActiveHp" class="meta"></div>
       </div>
@@ -235,6 +330,8 @@
   let currentSnapshot = null;
   let mustSwitch = false;
   let pendingSnapshotRefresh = null;
+  let processedLogCount = 0;
+  let animationQueue = Promise.resolve();
   const TEAM_SIZE = 6;
   const slotMoveCache = { player1: {}, player2: {} };
 
@@ -1073,14 +1170,128 @@
     `).join('') + '<button class="btn btn-ghost" onclick="openSwitchModal(true)">Switch Pokemon</button>';
   }
 
+  function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function activeWrap(side) {
+    return document.getElementById(`${side}ActiveWrap`);
+  }
+
+  function activeFx(side) {
+    return document.getElementById(`${side}ActiveFx`);
+  }
+
+  function clearAnimationClasses(side) {
+    const wrap = activeWrap(side);
+    const fx = activeFx(side);
+    if (wrap) wrap.className = 'active-sprite-wrap';
+    if (fx) fx.className = 'active-fx';
+  }
+
+  function inferMoveVisual(moveName) {
+    const move = (moveName || '').toLowerCase();
+    const typeMap = [
+      { keys:['thunder','volt','electric','spark','zap'], color:'#ffd54d', type:'special' },
+      { keys:['ice','freeze','blizzard','frost'], color:'#89e1ff', type:'special' },
+      { keys:['flame','fire','blast','ember','flare','burn','heat','pyro'], color:'#ff8a5b', type:'special' },
+      { keys:['water','hydro','surf','scald','bubble','aqua','wave','rend'], color:'#5bc0ff', type:'special' },
+      { keys:['leaf','giga','seed','wood','grass','petal'], color:'#78df7d', type:'special' },
+      { keys:['shadow','ghost','night','dark','phantom'], color:'#9a86ff', type:'special' },
+      { keys:['dragon'], color:'#7e8bff', type:'special' },
+      { keys:['rock','stone'], color:'#c7aa74', type:'physical' },
+      { keys:['iron','metal','steel','flash-cannon','meteor'], color:'#d7e2f6', type:'physical' },
+      { keys:['poison','sludge','toxic'], color:'#b56dff', type:'special' },
+      { keys:['bug'], color:'#b6e24a', type:'physical' },
+      { keys:['psychic','psy'], color:'#ff7ab3', type:'special' },
+      { keys:['fighting','combat','punch','kick','chop'], color:'#ff9c73', type:'physical' },
+      { keys:['fairy','moon'], color:'#ffb6df', type:'special' }
+    ];
+    const matched = typeMap.find(entry => entry.keys.some(key => move.includes(key)));
+    if (matched) return matched;
+    if (['protect','recover','roost','swords-dance','dragon-dance','calm-mind','nasty-plot','substitute','haze','spikes'].some(key => move.includes(key))) {
+      return { color:'#8ce8ff', type:'status' };
+    }
+    return { color:'#ffffff', type:'physical' };
+  }
+
+  function spawnProjectile(attackerSide, visual) {
+    const fx = activeFx(attackerSide);
+    if (!fx) return;
+    const projectile = document.createElement('div');
+    projectile.className = `fx-projectile ${visual.type}${visual.type === 'physical' ? ' multi' : ''}${attackerSide === 'p2' ? ' from-right' : ''}`;
+    projectile.style.color = visual.color;
+    projectile.style.background = visual.type === 'status' ? 'transparent' : visual.color;
+    fx.appendChild(projectile);
+    setTimeout(() => projectile.remove(), 650);
+  }
+
+  async function animateBattleEvent(attackerSide, moveName, extraLines = []) {
+    const defenderSide = attackerSide === 'p1' ? 'p2' : 'p1';
+    const attacker = activeWrap(attackerSide);
+    const defender = activeWrap(defenderSide);
+    const attackerFx = activeFx(attackerSide);
+    const defenderFx = activeFx(defenderSide);
+    if (!attacker || !defender || !attackerFx || !defenderFx) return;
+
+    clearAnimationClasses(attackerSide);
+    clearAnimationClasses(defenderSide);
+
+    const visual = inferMoveVisual(moveName);
+    attacker.classList.add(attackerSide === 'p1' ? 'attacking-left' : 'attacking-right');
+    spawnProjectile(attackerSide, visual);
+    await wait(220);
+    defender.classList.add('hit');
+    defenderFx.classList.add('flash');
+
+    if (extraLines.some(line => /drained hp|restored hp with shell bell/i.test(line))) {
+      attacker.classList.add('recoiling');
+      attackerFx.classList.add('flash');
+    }
+    if (extraLines.some(line => /fainted!/i.test(line))) {
+      await wait(180);
+      defender.classList.add('fainted');
+    }
+    await wait(520);
+    clearAnimationClasses(attackerSide);
+    clearAnimationClasses(defenderSide);
+  }
+
+  function queueBattleAnimations(lines) {
+    if (!Array.isArray(lines) || !lines.length) return;
+    const events = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const match = line.match(/^(P[12])-.* used (.+)!$/i);
+      if (!match) continue;
+      const attackerSide = match[1].toUpperCase() === 'P1' ? 'p1' : 'p2';
+      const moveName = match[2];
+      const related = [];
+      let j = i + 1;
+      while (j < lines.length && !/^(P[12])-.* used /i.test(lines[j])) {
+        related.push(lines[j]);
+        j++;
+      }
+      events.push({ attackerSide, moveName, related });
+    }
+    if (!events.length) return;
+    animationQueue = animationQueue.then(async () => {
+      for (const event of events) {
+        await animateBattleEvent(event.attackerSide, event.moveName, event.related);
+      }
+    });
+  }
+
   function handleUpdate(data) {
     if (pendingSnapshotRefresh) {
       clearTimeout(pendingSnapshotRefresh);
       pendingSnapshotRefresh = null;
     }
+    const newLines = Array.isArray(data.combatLog) ? data.combatLog.slice(processedLogCount) : [];
+    processedLogCount = Array.isArray(data.combatLog) ? data.combatLog.length : processedLogCount;
     currentSnapshot = data;
     if (data.combatLog && data.combatLog.length) {
-      data.combatLog.forEach(logLine);
+      newLines.forEach(logLine);
     }
 
     const p1 = data.player1Team?.[data.player1ActiveIndex];
@@ -1094,6 +1305,7 @@
 
     renderTeamRows('team1Rows', data.player1Team, data.player1ActiveIndex);
     renderTeamRows('team2Rows', data.player2Team, data.player2ActiveIndex);
+    queueBattleAnimations(newLines);
 
     myTeam = playerId === 'player1' ? data.player1Team : data.player2Team;
 
@@ -1176,6 +1388,8 @@
       stompClient = null;
     }
     currentSnapshot = null;
+    processedLogCount = 0;
+    animationQueue = Promise.resolve();
     mustSwitch = false;
     myTeam = [];
     slotMoveCache.player1 = {};
