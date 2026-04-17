@@ -1671,8 +1671,20 @@
     const rightWrap = document.getElementById('fallbackBattlerRight');
     if (!leftImg || !rightImg || !leftName || !rightName || !leftWrap || !rightWrap) return;
 
-    if (p1?.speciesId) leftImg.src = spriteGifUrl(p1.speciesId, false);
-    if (p2?.speciesId) rightImg.src = spriteGifUrl(p2.speciesId, false);
+    if (p1?.speciesId) {
+      leftImg.src = spriteUrl(p1.speciesId, false);
+      leftImg.onerror = () => {
+        leftImg.onerror = null;
+        leftImg.src = threeSpriteUrl(p1.speciesId, false);
+      };
+    }
+    if (p2?.speciesId) {
+      rightImg.src = spriteUrl(p2.speciesId, false);
+      rightImg.onerror = () => {
+        rightImg.onerror = null;
+        rightImg.src = threeSpriteUrl(p2.speciesId, false);
+      };
+    }
     leftName.textContent = p1?.nickname || 'Player 1';
     rightName.textContent = p2?.nickname || ((battleMode === 'ai' || battleMode === 'competitive') ? 'AI' : 'Player 2');
     leftWrap.classList.toggle('fainted', !!p1?.fainted);
