@@ -61,8 +61,8 @@
       position: absolute;
       inset: 0;
       display: none;
-      align-items: center;
-      justify-content: center;
+      align-items: stretch;
+      justify-content: stretch;
       text-align: center;
       padding: 24px;
       color: rgba(238,242,255,.82);
@@ -71,6 +71,147 @@
       background: radial-gradient(circle at center, rgba(94,162,255,.09), rgba(9,17,28,.86));
     }
     .three-fallback.show { display: flex; }
+    .fallback-stadium {
+      position: relative;
+      flex: 1;
+      border-radius: 18px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 50% 18%, rgba(110,182,255,.16), transparent 28%),
+        linear-gradient(180deg, rgba(11,18,29,.82), rgba(6,11,18,.96));
+    }
+    .fallback-copy {
+      position: absolute;
+      left: 50%;
+      top: 46%;
+      transform: translate(-50%, -50%);
+      max-width: 340px;
+      color: rgba(238,242,255,.88);
+      font-size: 13px;
+      line-height: 1.5;
+      text-shadow: 0 2px 18px rgba(0,0,0,.55);
+    }
+    .fallback-floor {
+      position: absolute;
+      left: 50%;
+      bottom: 28px;
+      width: 76%;
+      height: 130px;
+      transform: translateX(-50%);
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at center, rgba(118,199,255,.22), rgba(118,199,255,.03) 44%, rgba(5,10,18,.02) 64%),
+        linear-gradient(180deg, rgba(17,38,58,.9), rgba(7,14,24,.96));
+      border: 1px solid rgba(113,179,255,.28);
+      box-shadow: 0 0 0 14px rgba(18,38,62,.18), 0 18px 44px rgba(0,0,0,.42);
+    }
+    .fallback-floor::after {
+      content: '';
+      position: absolute;
+      inset: 16px;
+      border-radius: 50%;
+      border: 1px solid rgba(125,195,255,.24);
+      box-shadow: 0 0 24px rgba(94,162,255,.14);
+    }
+    .fallback-platform {
+      position: absolute;
+      bottom: 78px;
+      width: 132px;
+      height: 38px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(74,104,132,.95), rgba(27,39,54,.98));
+      border: 1px solid rgba(136,175,220,.3);
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    .fallback-platform.left { left: 19%; }
+    .fallback-platform.right { right: 19%; }
+    .fallback-battler {
+      position: absolute;
+      bottom: 88px;
+      width: 150px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      transform-origin: 50% 100%;
+      transition: transform .2s ease;
+    }
+    .fallback-battler.left { left: 16%; }
+    .fallback-battler.right { right: 16%; }
+    .fallback-battler img {
+      width: 118px;
+      height: 118px;
+      object-fit: contain;
+      image-rendering: pixelated;
+      filter: drop-shadow(0 14px 18px rgba(0,0,0,.38));
+    }
+    .fallback-battler.fainted img { opacity: .35; filter: grayscale(.5) drop-shadow(0 8px 14px rgba(0,0,0,.28)); }
+    .fallback-battler.left.attacking { animation: fallbackAttackLeft .52s ease-in-out; }
+    .fallback-battler.right.attacking { animation: fallbackAttackRight .52s ease-in-out; }
+    .fallback-battler.hit img { animation: fallbackHit .45s ease-in-out; }
+    .fallback-name {
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(9,15,26,.76);
+      border: 1px solid rgba(113,179,255,.22);
+      font-size: 12px;
+      color: rgba(238,242,255,.9);
+      max-width: 150px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .fallback-projectile {
+      position: absolute;
+      top: 54%;
+      width: 22px;
+      height: 22px;
+      border-radius: 999px;
+      pointer-events: none;
+      opacity: 0;
+      filter: blur(.2px) drop-shadow(0 0 14px currentColor);
+    }
+    .fallback-projectile.active.left {
+      left: 27%;
+      opacity: 1;
+      animation: fallbackProjectileLeft .62s ease-out forwards;
+    }
+    .fallback-projectile.active.right {
+      right: 27%;
+      opacity: 1;
+      animation: fallbackProjectileRight .62s ease-out forwards;
+    }
+    .fallback-projectile.electric { color: #ffe45a; background: radial-gradient(circle, #fff8b8, #ffd53f 45%, rgba(255,213,63,0)); }
+    .fallback-projectile.fire { color: #ff8b57; background: radial-gradient(circle, #ffd0a8, #ff7b4f 42%, rgba(255,123,79,0)); }
+    .fallback-projectile.ice { color: #8fe8ff; background: radial-gradient(circle, #e1fcff, #7ddfff 42%, rgba(125,223,255,0)); }
+    .fallback-projectile.dragon { color: #9a8fff; background: radial-gradient(circle, #ddd7ff, #8878ff 42%, rgba(136,120,255,0)); }
+    .fallback-projectile.dark { color: #8da0c8; background: radial-gradient(circle, #d0daf8, #6b7699 44%, rgba(107,118,153,0)); }
+    .fallback-projectile.grass { color: #7fe39b; background: radial-gradient(circle, #d7ffe2, #63d78a 44%, rgba(99,215,138,0)); }
+    .fallback-projectile.default { color: #8dc8ff; background: radial-gradient(circle, #edf7ff, #7ab8ff 44%, rgba(122,184,255,0)); }
+    @keyframes fallbackAttackLeft {
+      0%, 100% { transform: translateX(0) translateY(0) scale(1); }
+      40% { transform: translateX(34px) translateY(-4px) scale(1.06); }
+    }
+    @keyframes fallbackAttackRight {
+      0%, 100% { transform: translateX(0) translateY(0) scale(1); }
+      40% { transform: translateX(-34px) translateY(-4px) scale(1.06); }
+    }
+    @keyframes fallbackHit {
+      0%, 100% { transform: translateX(0); filter: drop-shadow(0 14px 18px rgba(0,0,0,.38)); }
+      22% { transform: translateX(-8px); filter: brightness(1.32) drop-shadow(0 0 18px rgba(255,170,170,.6)); }
+      48% { transform: translateX(9px); }
+      74% { transform: translateX(-5px); }
+    }
+    @keyframes fallbackProjectileLeft {
+      0% { transform: translate(0, 0) scale(.7); opacity: 0; }
+      12% { opacity: 1; }
+      100% { transform: translate(430px, -72px) scale(1.25); opacity: 0; }
+    }
+    @keyframes fallbackProjectileRight {
+      0% { transform: translate(0, 0) scale(.7); opacity: 0; }
+      12% { opacity: 1; }
+      100% { transform: translate(-430px, -72px) scale(1.25); opacity: 0; }
+    }
     .three-label {
       position: absolute;
       top: 18px;
@@ -315,7 +456,23 @@
       <div class="card-title">3D Stadium</div>
       <div class="three-wrap">
         <canvas id="battle3dCanvas"></canvas>
-        <div id="threeFallback" class="three-fallback">3D stadium could not start yet. If WebGL or the Three.js CDN is blocked, the 2D battle view still works.</div>
+        <div id="threeFallback" class="three-fallback">
+          <div class="fallback-stadium">
+            <div id="fallbackCopy" class="fallback-copy">3D stadium could not start yet. If WebGL or the Three.js CDN is blocked, the built-in fallback stadium will still track the battle.</div>
+            <div class="fallback-floor"></div>
+            <div class="fallback-platform left"></div>
+            <div class="fallback-platform right"></div>
+            <div id="fallbackProjectile" class="fallback-projectile default"></div>
+            <div id="fallbackBattlerLeft" class="fallback-battler left">
+              <img id="fallbackImgLeft" alt="Player 1 battler">
+              <div id="fallbackNameLeft" class="fallback-name">Player 1</div>
+            </div>
+            <div id="fallbackBattlerRight" class="fallback-battler right">
+              <img id="fallbackImgRight" alt="Player 2 battler">
+              <div id="fallbackNameRight" class="fallback-name">Player 2</div>
+            </div>
+          </div>
+        </div>
         <div class="three-overlay">
           <div id="threeLabelLeft" class="three-label left">Player 1</div>
           <div id="threeLabelRight" class="three-label right">Player 2</div>
@@ -1247,7 +1404,10 @@
   function showThreeFallback(message) {
     const fallback = document.getElementById('threeFallback');
     if (!fallback) return;
-    fallback.textContent = message || '3D stadium unavailable.';
+    const copy = document.getElementById('fallbackCopy');
+    if (copy) {
+      copy.textContent = message || '3D stadium unavailable.';
+    }
     fallback.classList.add('show');
   }
 
@@ -1454,7 +1614,10 @@
 
   function updateThreeBattleScene(p1, p2) {
     ensureThreeArena();
-    if (!threeArena) return;
+    if (!threeArena || !window.THREE) {
+      updateFallbackBattleScene(p1, p2);
+      return;
+    }
     if (p1?.speciesId) setThreeBattlerSprite('p1', p1.speciesId);
     if (p2?.speciesId) setThreeBattlerSprite('p2', p2.speciesId);
     document.getElementById('threeLabelLeft').textContent = p1?.nickname || 'Player 1';
@@ -1465,7 +1628,10 @@
 
   function playThreeAttackAnimation(attackerSide, moveName) {
     ensureThreeArena();
-    if (!threeArena || !window.THREE) return;
+    if (!threeArena || !window.THREE) {
+      playFallbackThreeAttackAnimation(attackerSide, moveName);
+      return;
+    }
     const attacker = attackerSide === 'p1' ? threeArena.left : threeArena.right;
     const defender = attackerSide === 'p1' ? threeArena.right : threeArena.left;
     const visual = inferMoveVisual(moveName);
@@ -1494,6 +1660,43 @@
       duration: visual.type === 'physical' ? 0.34 : 0.48,
       arc: visual.type === 'status' ? 0.9 : 0.45
     });
+  }
+
+  function updateFallbackBattleScene(p1, p2) {
+    const leftImg = document.getElementById('fallbackImgLeft');
+    const rightImg = document.getElementById('fallbackImgRight');
+    const leftName = document.getElementById('fallbackNameLeft');
+    const rightName = document.getElementById('fallbackNameRight');
+    const leftWrap = document.getElementById('fallbackBattlerLeft');
+    const rightWrap = document.getElementById('fallbackBattlerRight');
+    if (!leftImg || !rightImg || !leftName || !rightName || !leftWrap || !rightWrap) return;
+
+    if (p1?.speciesId) leftImg.src = spriteGifUrl(p1.speciesId, false);
+    if (p2?.speciesId) rightImg.src = spriteGifUrl(p2.speciesId, false);
+    leftName.textContent = p1?.nickname || 'Player 1';
+    rightName.textContent = p2?.nickname || ((battleMode === 'ai' || battleMode === 'competitive') ? 'AI' : 'Player 2');
+    leftWrap.classList.toggle('fainted', !!p1?.fainted);
+    rightWrap.classList.toggle('fainted', !!p2?.fainted);
+  }
+
+  function playFallbackThreeAttackAnimation(attackerSide, moveName) {
+    const attacker = document.getElementById(attackerSide === 'p1' ? 'fallbackBattlerLeft' : 'fallbackBattlerRight');
+    const defender = document.getElementById(attackerSide === 'p1' ? 'fallbackBattlerRight' : 'fallbackBattlerLeft');
+    const projectile = document.getElementById('fallbackProjectile');
+    if (!attacker || !defender || !projectile) return;
+
+    const visual = inferMoveVisual(moveName);
+    projectile.className = `fallback-projectile ${visual.type || 'default'} active ${attackerSide === 'p1' ? 'left' : 'right'}`;
+    attacker.classList.remove('attacking');
+    defender.classList.remove('hit');
+    void attacker.offsetWidth;
+    attacker.classList.add('attacking');
+    setTimeout(() => defender.classList.add('hit'), 220);
+    setTimeout(() => {
+      attacker.classList.remove('attacking');
+      defender.classList.remove('hit');
+      projectile.className = `fallback-projectile ${visual.type || 'default'}`;
+    }, 700);
   }
 
   function activeWrap(side) {
