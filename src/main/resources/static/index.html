@@ -5,7 +5,7 @@
   <title>Pokemon Battle Simulator</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
-  <script src="https://unpkg.com/three@0.161.0/build/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r161/three.min.js"></script>
   <style>
     :root {
       --bg: #0f1117;
@@ -57,6 +57,20 @@
       linear-gradient(180deg, #0d1320, #09111c 50%, #0c1624); }
     #battle3dCanvas { width: 100%; height: 100%; display: block; }
     .three-overlay { position: absolute; inset: 0; pointer-events: none; }
+    .three-fallback {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 24px;
+      color: rgba(238,242,255,.82);
+      font-size: 14px;
+      letter-spacing: .03em;
+      background: radial-gradient(circle at center, rgba(94,162,255,.09), rgba(9,17,28,.86));
+    }
+    .three-fallback.show { display: flex; }
     .three-label {
       position: absolute;
       top: 18px;
@@ -301,6 +315,7 @@
       <div class="card-title">3D Stadium</div>
       <div class="three-wrap">
         <canvas id="battle3dCanvas"></canvas>
+        <div id="threeFallback" class="three-fallback">3D stadium could not start yet. If WebGL or the Three.js CDN is blocked, the 2D battle view still works.</div>
         <div class="three-overlay">
           <div id="threeLabelLeft" class="three-label left">Player 1</div>
           <div id="threeLabelRight" class="three-label right">Player 2</div>
@@ -1229,12 +1244,37 @@
     return `https://play.pokemonshowdown.com/sprites/${folder}/${species}.png`;
   }
 
+  function showThreeFallback(message) {
+    const fallback = document.getElementById('threeFallback');
+    if (!fallback) return;
+    fallback.textContent = message || '3D stadium unavailable.';
+    fallback.classList.add('show');
+  }
+
+  function hideThreeFallback() {
+    const fallback = document.getElementById('threeFallback');
+    if (!fallback) return;
+    fallback.classList.remove('show');
+  }
+
   function ensureThreeArena() {
-    if (threeArena || !window.THREE) return;
+    if (threeArena) return;
+    if (!window.THREE) {
+      showThreeFallback('Three.js did not load on this page, so the 3D stadium cannot render yet.');
+      return;
+    }
     const canvas = document.getElementById('battle3dCanvas');
     if (!canvas) return;
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    } catch (error) {
+      showThreeFallback('WebGL is unavailable in this browser session, so the 3D stadium could not start.');
+      return;
+    }
+    hideThreeFallback();
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x08111b, 1);
     const scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0x09111c, 16, 34);
 
@@ -1255,20 +1295,24 @@
 
     const floor = new THREE.Mesh(
       new THREE.CylinderGeometry(8.4, 9.6, 0.65, 48),
-      new THREE.MeshStandardMaterial({ color: 0x1a3347, roughness: 0.85, metalness: 0.08 })
+      new THREE.MeshPhongMaterial({ color: 0x274968, emissive: 0x0b1d2d, shininess: 24 })
     );
     floor.position.y = -0.4;
     stadium.add(floor);
 
     const ring = new THREE.Mesh(
       new THREE.TorusGeometry(7.6, 0.28, 12, 60),
-      new THREE.MeshStandardMaterial({ color: 0x5ea2ff, emissive: 0x143352, emissiveIntensity: 1.2 })
+      new THREE.MeshPhongMaterial({ color: 0x76c7ff, emissive: 0x1f5b87, emissiveIntensity: 1.65, shininess: 80 })
     );
     ring.rotation.x = Math.PI / 2;
     ring.position.y = -0.02;
     stadium.add(ring);
 
-    const platformMaterial = new THREE.MeshStandardMaterial({ color: 0x24364b, roughness: 0.72, metalness: 0.1 });
+    const grid = new THREE.GridHelper(18, 24, 0x5ea2ff, 0x1b3148);
+    grid.position.y = -0.06;
+    stadium.add(grid);
+
+    const platformMaterial = new THREE.MeshPhongMaterial({ color: 0x42617d, emissive: 0x162432, shininess: 30 });
     const leftPlatform = new THREE.Mesh(new THREE.CylinderGeometry(2.35, 2.55, 0.45, 32), platformMaterial);
     leftPlatform.position.set(-4.5, 0.05, 1.6);
     stadium.add(leftPlatform);
@@ -1278,7 +1322,7 @@
 
     const crowd = new THREE.Mesh(
       new THREE.TorusGeometry(12.2, 2.9, 18, 60),
-      new THREE.MeshStandardMaterial({ color: 0x0f2033, emissive: 0x06111f, roughness: 1 })
+      new THREE.MeshPhongMaterial({ color: 0x193149, emissive: 0x08121d, shininess: 8 })
     );
     crowd.rotation.x = Math.PI / 2;
     crowd.position.y = 2.2;
