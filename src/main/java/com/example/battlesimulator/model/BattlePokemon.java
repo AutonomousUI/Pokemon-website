@@ -112,9 +112,13 @@ public class BattlePokemon {
     @Builder.Default private boolean weaknessPolicyUsed = false;
     @Builder.Default private boolean airBalloonPopped = false;
     @Builder.Default private boolean megaEvolved = false;
+    @Builder.Default private boolean miclePrimed = false;
+    @Builder.Default private boolean needsImmediateSwitch = false;
 
     // Choice item lock
     private String choiceLock;
+    private String metronomeMoveId;
+    @Builder.Default private int metronomeCount = 0;
 
     // Helper method
     public boolean isFainted() {

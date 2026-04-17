@@ -212,6 +212,10 @@ public class DamageCalculatorService {
                     itemFactor = 2.0;
                 }
             }
+            case METRONOME -> {
+                int consecutiveUses = Math.max(0, attacker.getMetronomeCount() - 1);
+                itemFactor = Math.min(2.0, 1.0 + consecutiveUses * 0.2);
+            }
             default -> {
             }
         }

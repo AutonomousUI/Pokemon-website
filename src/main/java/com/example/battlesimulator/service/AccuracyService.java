@@ -3,6 +3,7 @@ package com.example.battlesimulator.service;
 import com.example.battlesimulator.model.BattlePokemon;
 import com.example.battlesimulator.model.Move;
 import com.example.battlesimulator.model.enums.Ability;
+import com.example.battlesimulator.model.enums.HeldItem;
 import com.example.battlesimulator.model.enums.MoveCategory;
 import org.springframework.stereotype.Service;
 
@@ -32,6 +33,12 @@ public class AccuracyService {
         }
 
         double compoundEyesFactor = attacker.getAbility() == Ability.COMPOUND_EYES ? 1.3 : 1.0;
+        double itemFactor = switch (attacker.getHeldItem()) {
+            case WIDE_LENS -> 1.1;
+            case ZOOM_LENS -> defender.isMovedThisTurn() ? 1.2 : 1.0;
+            default -> 1.0;
+        };
+        double micleFactor = attacker.isMiclePrimed() ? 1.2 : 1.0;
 
         // 2. Calculate the net stage difference
         // E.g., if attacker is at -1 Accuracy and defender is at +1 Evasion, the net is -2.
@@ -55,9 +62,12 @@ public class AccuracyService {
         }
 
         // 4. Calculate the final modified accuracy
-        double finalAccuracy = move.accuracy() * multiplier * hustleFactor * compoundEyesFactor;
+        double finalAccuracy = move.accuracy() * multiplier * hustleFactor * compoundEyesFactor * itemFactor * micleFactor;
         if (defender.getAbility() == Ability.WONDER_SKIN && move.category() == MoveCategory.STATUS) {
             finalAccuracy = Math.min(finalAccuracy, 50.0);
+        }
+        if (attacker.isMiclePrimed()) {
+            attacker.setMiclePrimed(false);
         }
 
         // 5. Roll a random number between 1 and 100

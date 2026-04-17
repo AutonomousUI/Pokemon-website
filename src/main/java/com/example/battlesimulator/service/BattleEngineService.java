@@ -65,6 +65,40 @@ public class BattleEngineService {
         this.messagingTemplate = messagingTemplate;
     }
 
+    private void restoreNegativeStagesWithWhiteHerb(BattlePokemon pokemon, List<String> log) {
+        boolean restored = false;
+        if (pokemon.getAttackStage() < 0) { pokemon.setAttackStage(0); restored = true; }
+        if (pokemon.getDefenseStage() < 0) { pokemon.setDefenseStage(0); restored = true; }
+        if (pokemon.getSpecialAttackStage() < 0) { pokemon.setSpecialAttackStage(0); restored = true; }
+        if (pokemon.getSpecialDefenseStage() < 0) { pokemon.setSpecialDefenseStage(0); restored = true; }
+        if (pokemon.getSpeedStage() < 0) { pokemon.setSpeedStage(0); restored = true; }
+        if (pokemon.getAccuracyStage() < 0) { pokemon.setAccuracyStage(0); restored = true; }
+        if (pokemon.getEvasionStage() < 0) { pokemon.setEvasionStage(0); restored = true; }
+        if (restored) {
+            consumeHeldItem(pokemon);
+            log.add(pokemon.getNickname() + "'s White Herb restored its lowered stats!");
+        }
+    }
+
+    private void trackMetronomeMove(BattlePokemon attacker, Move move) {
+        if (move == null) {
+            attacker.setMetronomeMoveId(null);
+            attacker.setMetronomeCount(0);
+            return;
+        }
+        if (attacker.getHeldItem() != HeldItem.METRONOME) {
+            attacker.setMetronomeMoveId(move.id());
+            attacker.setMetronomeCount(1);
+            return;
+        }
+        if (move.id().equals(attacker.getMetronomeMoveId())) {
+            attacker.setMetronomeCount(Math.min(6, attacker.getMetronomeCount() + 1));
+        } else {
+            attacker.setMetronomeMoveId(move.id());
+            attacker.setMetronomeCount(1);
+        }
+    }
+
     // -------------------------------------------------------------------------
     // SETUP
     // -------------------------------------------------------------------------
@@ -562,6 +596,15 @@ public class BattleEngineService {
         log.add(attacker.getNickname() + " used " + move.name() + "!");
         attacker.setAnalyticBoosted(attacker.getAbility() == Ability.ANALYTIC && defender.isMovedThisTurn());
         attacker.setMovedThisTurn(true);
+        trackMetronomeMove(attacker, move);
+
+        if (attacker.getHeldItem() == HeldItem.CUSTAP_BERRY
+                && !attacker.isBerryUsed()
+                && shouldTriggerPinchBerry(attacker)) {
+            attacker.setBerryUsed(true);
+            consumeHeldItem(attacker);
+            log.add(attacker.getNickname() + " consumed its Custap Berry!");
+        }
 
         if (attacker.getAbility() == Ability.TRUANT) {
             if (attacker.isTruantLoafing()) {
@@ -625,8 +668,15 @@ public class BattleEngineService {
         // ── Taunt: blocks status moves ───────────────────────────────────
         if (attacker.isTaunted()
                 && move.category() == com.example.battlesimulator.model.enums.MoveCategory.STATUS) {
-            log.add(attacker.getNickname() + " is taunted and can't use status moves!");
-            return;
+            if (attacker.getHeldItem() == HeldItem.MENTAL_HERB) {
+                consumeHeldItem(attacker);
+                attacker.setTaunted(false);
+                attacker.setTauntCounter(0);
+                log.add(attacker.getNickname() + "'s Mental Herb cured its Taunt!");
+            } else {
+                log.add(attacker.getNickname() + " is taunted and can't use status moves!");
+                return;
+            }
         }
 
         if ((attacker.getAbility() == Ability.PROTEAN || attacker.getAbility() == Ability.LIBERO)
@@ -833,11 +883,23 @@ public class BattleEngineService {
             int drainPct = getDrainPercent(move);
             if (drainPct > 0) {
                 int healed = Math.max(1, totalDamage * drainPct / 100);
+                if (attacker.getHeldItem() == HeldItem.BIG_ROOT) {
+                    healed = Math.max(1, (int) Math.floor(healed * 1.3));
+                }
                 // Big Root boosts drain by 30%
                 // (no Big Root in HeldItem yet — leave hook for future)
                 int before = attacker.getCurrentHp();
                 attacker.setCurrentHp(Math.min(attacker.getMaxHp(), before + healed));
                 log.add(attacker.getNickname() + " drained HP! (+" + (attacker.getCurrentHp()-before) + " HP)");
+            }
+            if (attacker.getHeldItem() == HeldItem.SHELL_BELL && !attacker.isFainted()) {
+                int healed = Math.max(1, totalDamage / 8);
+                int before = attacker.getCurrentHp();
+                attacker.setCurrentHp(Math.min(attacker.getMaxHp(), before + healed));
+                int actual = attacker.getCurrentHp() - before;
+                if (actual > 0) {
+                    log.add(attacker.getNickname() + " restored HP with Shell Bell! (+" + actual + " HP)");
+                }
             }
             // ── Knock Off damage bonus: 1.5× if target holds an item ──────
             // (handled in DamageCalculatorService via move id; item removal happens here)
@@ -852,6 +914,11 @@ public class BattleEngineService {
             if (!defender.isFainted()) applyFlinchEffect(attacker, defender, move, log);
             // ── Secondary effects ─────────────────────────────────────────
             applySecondaryEffect(attacker, defender, move, log);
+            if (attacker.getHeldItem() == HeldItem.THROAT_SPRAY && isSoundMove(move)) {
+                consumeHeldItem(attacker);
+                applyStage(attacker, "specialAttack", 1, log);
+                log.add(attacker.getNickname() + "'s Throat Spray boosted its Sp. Atk!");
+            }
             // ── U-turn / Volt Switch / Flip Turn: flag forced switch ───────
             if (moveId.equals("u-turn") || moveId.equals("volt-switch")
                     || moveId.equals("flip-turn") || moveId.equals("baton-pass")) {
@@ -902,15 +969,35 @@ public class BattleEngineService {
             case "crunch":
             case "shadow-ball":
             case "earth-power":
+                if (rng.nextInt(100) < 20) {
+                    applyStage(defender, "specialDefense", -1, log);
+                }
+                break;
             case "energy-ball":
             case "flash-cannon":
             case "bug-buzz":
             case "psychic":
-            case "thunderbolt": // 10% chance in games, guaranteed here for simplicity
+                if (rng.nextInt(100) < 10) {
+                    applyStage(defender, "specialDefense", -1, log);
+                }
+                break;
+            case "thunderbolt":
+                if (rng.nextInt(100) < 10) {
+                    applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, attacker, log);
+                }
+                break;
             case "discharge":
+                if (rng.nextInt(100) < 30) {
+                    applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, attacker, log);
+                }
+                break;
             case "bubble-beam":
+                if (rng.nextInt(100) < 10) {
+                    applyStage(defender, "speed", -1, log);
+                }
+                break;
             case "icy-wind":
-                // These have chance-based effects in real games; skipping probability for now
+                applyStage(defender, "speed", -1, log);
                 break;
             case "lunge":
                 applyStage(defender, "attack", -1, log);
@@ -1467,6 +1554,9 @@ public class BattleEngineService {
         String magnitude = absDelta == 1 ? "" : absDelta == 2 ? " sharply" : " drastically";
         String direction  = delta > 0 ? " rose" + magnitude + "!" : " fell" + magnitude + "!";
         log.add(pokemon.getNickname() + "'s " + statDisplayName(stat) + direction);
+        if (delta < 0 && pokemon.getHeldItem() == HeldItem.WHITE_HERB) {
+            restoreNegativeStagesWithWhiteHerb(pokemon, log);
+        }
     }
 
     /**
@@ -2133,7 +2223,11 @@ public class BattleEngineService {
                 .weaknessPolicyUsed(pokemon.isWeaknessPolicyUsed())
                 .airBalloonPopped(pokemon.isAirBalloonPopped())
                 .megaEvolved(pokemon.isMegaEvolved())
+                .miclePrimed(pokemon.isMiclePrimed())
+                .needsImmediateSwitch(pokemon.isNeedsImmediateSwitch())
                 .choiceLock(pokemon.getChoiceLock())
+                .metronomeMoveId(pokemon.getMetronomeMoveId())
+                .metronomeCount(pokemon.getMetronomeCount())
                 .build();
     }
 
@@ -2703,6 +2797,37 @@ public class BattleEngineService {
             applyStage(defender, "specialAttack", 2, log);
             log.add(defender.getNickname() + "'s Weakness Policy sharply boosted its offenses!");
         }
+        if (defender.getHeldItem() == HeldItem.ABSORB_BULB && moveType == Type.WATER && !defender.isFainted()) {
+            consumeHeldItem(defender);
+            applyStage(defender, "specialAttack", 1, log);
+            log.add(defender.getNickname() + "'s Absorb Bulb boosted its Sp. Atk!");
+        }
+        if (defender.getHeldItem() == HeldItem.JABOCA_BERRY
+                && move.category() == com.example.battlesimulator.model.enums.MoveCategory.PHYSICAL
+                && !defender.isFainted()) {
+            consumeHeldItem(defender);
+            int recoil = Math.max(1, attacker.getMaxHp() / 8);
+            attacker.setCurrentHp(Math.max(0, attacker.getCurrentHp() - recoil));
+            log.add(attacker.getNickname() + " was hurt by Jaboca Berry! (-" + recoil + " HP)");
+        }
+        if (defender.getHeldItem() == HeldItem.ROWAP_BERRY
+                && move.category() == com.example.battlesimulator.model.enums.MoveCategory.SPECIAL
+                && !defender.isFainted()) {
+            consumeHeldItem(defender);
+            int recoil = Math.max(1, attacker.getMaxHp() / 8);
+            attacker.setCurrentHp(Math.max(0, attacker.getCurrentHp() - recoil));
+            log.add(attacker.getNickname() + " was hurt by Rowap Berry! (-" + recoil + " HP)");
+        }
+        if (defender.getHeldItem() == HeldItem.EJECT_BUTTON && !defender.isFainted()) {
+            consumeHeldItem(defender);
+            defender.setNeedsImmediateSwitch(true);
+            log.add(defender.getNickname() + "'s Eject Button will force a switch!");
+        }
+        if (defender.getHeldItem() == HeldItem.RED_CARD && !defender.isFainted() && !attacker.isFainted()) {
+            consumeHeldItem(defender);
+            attacker.setNeedsImmediateSwitch(true);
+            log.add(defender.getNickname() + "'s Red Card will force " + attacker.getNickname() + " out!");
+        }
         if (defenderAbility == null) return;
         switch (defenderAbility) {
             case WEAK_ARMOR -> {
@@ -2891,6 +3016,7 @@ public class BattleEngineService {
                 if (!pokemon.isBerryUsed() && pokemon.getCurrentHp() <= pokemon.getMaxHp() / 2) {
                     int heal = pokemon.getMaxHp() / 4;
                     pokemon.setCurrentHp(Math.min(pokemon.getMaxHp(), pokemon.getCurrentHp() + heal));
+                    consumeHeldItem(pokemon);
                     pokemon.setBerryUsed(true);
                     log.add(pokemon.getNickname() + " ate its Sitrus Berry! (+" + heal + " HP)");
                     if (pokemon.getAbility() == Ability.UNBURDEN) { pokemon.setUnburdened(true); log.add(pokemon.getNickname() + "'s Unburden doubled its Speed!"); }
@@ -2899,6 +3025,7 @@ public class BattleEngineService {
             case ORAN_BERRY -> {
                 if (!pokemon.isBerryUsed() && pokemon.getCurrentHp() <= pokemon.getMaxHp() / 2) {
                     pokemon.setCurrentHp(Math.min(pokemon.getMaxHp(), pokemon.getCurrentHp() + 10));
+                    consumeHeldItem(pokemon);
                     pokemon.setBerryUsed(true);
                     log.add(pokemon.getNickname() + " ate its Oran Berry! (+10 HP)");
                     if (pokemon.getAbility() == Ability.UNBURDEN) { pokemon.setUnburdened(true); log.add(pokemon.getNickname() + "'s Unburden doubled its Speed!"); }
@@ -2910,9 +3037,38 @@ public class BattleEngineService {
                     pokemon.setStatusCondition(com.example.battlesimulator.model.enums.StatusCondition.NONE);
                     pokemon.setSleepCounter(0);
                     pokemon.setToxicCounter(0);
+                    consumeHeldItem(pokemon);
                     pokemon.setBerryUsed(true);
                     log.add(pokemon.getNickname() + "'s Lum Berry cured its status condition!");
                     if (pokemon.getAbility() == Ability.UNBURDEN) { pokemon.setUnburdened(true); log.add(pokemon.getNickname() + "'s Unburden doubled its Speed!"); }
+                }
+            }
+            case SALAC_BERRY -> tryActivatePinchBerry(pokemon, "speed", 1, log);
+            case LIECHI_BERRY -> tryActivatePinchBerry(pokemon, "attack", 1, log);
+            case PETAYA_BERRY -> tryActivatePinchBerry(pokemon, "specialAttack", 1, log);
+            case APICOT_BERRY -> tryActivatePinchBerry(pokemon, "specialDefense", 1, log);
+            case LANSAT_BERRY -> {
+                if (shouldTriggerPinchBerry(pokemon)) {
+                    consumeHeldItem(pokemon);
+                    pokemon.setBerryUsed(true);
+                    pokemon.setCritStageBonus(pokemon.getCritStageBonus() + 2);
+                    log.add(pokemon.getNickname() + " ate its Lansat Berry! Its critical-hit ratio rose!");
+                }
+            }
+            case STARF_BERRY -> {
+                if (shouldTriggerPinchBerry(pokemon)) {
+                    consumeHeldItem(pokemon);
+                    pokemon.setBerryUsed(true);
+                    applyStage(pokemon, randomBoostableStat(), 2, log);
+                    log.add(pokemon.getNickname() + " ate its Starf Berry!");
+                }
+            }
+            case MICLE_BERRY -> {
+                if (shouldTriggerPinchBerry(pokemon)) {
+                    consumeHeldItem(pokemon);
+                    pokemon.setBerryUsed(true);
+                    pokemon.setMiclePrimed(true);
+                    log.add(pokemon.getNickname() + " ate its Micle Berry! Its next move will be more accurate!");
                 }
             }
             case FLAME_ORB -> applyStatus(pokemon,
@@ -2920,6 +3076,37 @@ public class BattleEngineService {
             case TOXIC_ORB -> applyStatus(pokemon,
                     com.example.battlesimulator.model.enums.StatusCondition.TOXIC, log);
             default -> {}
+        }
+    }
+
+    private void tryActivatePinchBerry(BattlePokemon pokemon, String stat, int stages, List<String> log) {
+        if (!shouldTriggerPinchBerry(pokemon)) {
+            return;
+        }
+        String berryName = pokemon.getHeldItem().getDisplayName();
+        consumeHeldItem(pokemon);
+        pokemon.setBerryUsed(true);
+        applyStage(pokemon, stat, stages, log);
+        log.add(pokemon.getNickname() + " ate its " + berryName + "!");
+    }
+
+    private boolean shouldTriggerPinchBerry(BattlePokemon pokemon) {
+        if (pokemon.isBerryUsed()) {
+            return false;
+        }
+        int threshold = pokemon.getAbility() == Ability.GLUTTONY ? pokemon.getMaxHp() / 2 : pokemon.getMaxHp() / 4;
+        return pokemon.getCurrentHp() <= Math.max(1, threshold);
+    }
+
+    private String randomBoostableStat() {
+        List<String> stats = List.of("attack", "defense", "specialAttack", "specialDefense", "speed");
+        return stats.get(rng.nextInt(stats.size()));
+    }
+
+    private void consumeHeldItem(BattlePokemon pokemon) {
+        pokemon.setHeldItem(HeldItem.NONE);
+        if (pokemon.getAbility() == Ability.UNBURDEN) {
+            pokemon.setUnburdened(true);
         }
     }
 
@@ -3177,6 +3364,11 @@ public class BattleEngineService {
                                    Move move, List<String> log) {
         if (defender.getAbility() == Ability.INNER_FOCUS) return;
         int flinchChance = getFlinchChance(move);
+        if (flinchChance == 0
+                && move.category() != com.example.battlesimulator.model.enums.MoveCategory.STATUS
+                && (attacker.getHeldItem() == HeldItem.KINGS_ROCK || attacker.getHeldItem() == HeldItem.RAZOR_FANG)) {
+            flinchChance = 10;
+        }
         if (flinchChance > 0 && rng.nextInt(100) < flinchChance) {
             defender.setFlinched(true);
             // Note: flinch only matters if defender hasn't moved yet this turn.
