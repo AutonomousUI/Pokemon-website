@@ -467,6 +467,20 @@ public class BattleEngineService {
                 }
             }
         }
+        if (false && !p1.isFainted() && p1.isNeedsImmediateSwitch()) {
+            p1.setNeedsImmediateSwitch(false);
+            if (session.getNextAliveIndex(1) >= 0) {
+                session.setPhase(Phase.WAITING_FOR_SWITCH_P1);
+                log.add("Player 1 must immediately switch out " + p1.getNickname() + "!");
+            }
+        }
+        if (false && !p2.isFainted() && p2.isNeedsImmediateSwitch()) {
+            p2.setNeedsImmediateSwitch(false);
+            if (session.getNextAliveIndex(2) >= 0) {
+                session.setPhase(Phase.WAITING_FOR_SWITCH_P2);
+                log.add("Player 2 must immediately switch out " + p2.getNickname() + "!");
+            }
+        }
 
         // ── Future Sight / Doom Desire: tick down and land ────────────────
         if (!p1.isFainted() && p1.getFutureSightTurns() > 0) {
@@ -556,6 +570,23 @@ public class BattleEngineService {
             session.setPhase(Phase.CHOOSING_ACTION);
             session.setTurnCount(session.getTurnCount() + 1);
             log.add("Turn " + session.getTurnCount() + " — choose your moves!");
+        }
+
+        if (session.getPhase() == Phase.CHOOSING_ACTION) {
+            if (p1.isNeedsImmediateSwitch() && p2.isNeedsImmediateSwitch()) {
+                p1.setNeedsImmediateSwitch(false);
+                p2.setNeedsImmediateSwitch(false);
+                session.setPhase(Phase.WAITING_FOR_SWITCH_BOTH);
+                log.add("Both active PokÃ©mon must switch out immediately!");
+            } else if (p1.isNeedsImmediateSwitch()) {
+                p1.setNeedsImmediateSwitch(false);
+                session.setPhase(Phase.WAITING_FOR_SWITCH_P1);
+                log.add("Player 1 must immediately switch out " + p1.getNickname() + "!");
+            } else if (p2.isNeedsImmediateSwitch()) {
+                p2.setNeedsImmediateSwitch(false);
+                session.setPhase(Phase.WAITING_FOR_SWITCH_P2);
+                log.add("Player 2 must immediately switch out " + p2.getNickname() + "!");
+            }
         }
 
         pendingActions.put(battleId, new ArrayList<>());
