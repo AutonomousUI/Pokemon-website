@@ -215,6 +215,14 @@
       pointer-events: none;
       filter: blur(.4px) drop-shadow(0 0 20px currentColor);
     }
+    .fallback-beam.electric {
+      height: 16px;
+      border-radius: 0;
+      filter: drop-shadow(0 0 22px #ffe45a) drop-shadow(0 0 42px rgba(255,228,90,.55));
+      background:
+        linear-gradient(90deg, rgba(255,248,184,0), rgba(255,248,184,.95) 8%, rgba(255,213,63,.98) 18%, rgba(255,248,184,.98) 28%, rgba(255,213,63,.98) 40%, rgba(255,248,184,.98) 52%, rgba(255,213,63,.98) 64%, rgba(255,248,184,.95) 76%, rgba(255,248,184,0));
+      clip-path: polygon(0% 54%, 6% 18%, 14% 58%, 22% 24%, 30% 62%, 38% 14%, 46% 56%, 54% 28%, 62% 60%, 70% 20%, 78% 58%, 86% 26%, 94% 60%, 100% 42%, 100% 58%, 94% 82%, 86% 40%, 78% 74%, 70% 36%, 62% 80%, 54% 42%, 46% 86%, 38% 44%, 30% 76%, 22% 38%, 14% 82%, 6% 46%, 0% 62%);
+    }
     .fallback-beam.active.left {
       left: 29%;
       width: 42%;
@@ -248,6 +256,10 @@
       top: 42%;
       opacity: 1;
       animation: fallbackImpact .48s ease-out forwards;
+    }
+    .fallback-impact.electric {
+      border-color: #ffe45a;
+      box-shadow: 0 0 24px rgba(255,228,90,.7), inset 0 0 14px rgba(255,248,184,.45);
     }
     @keyframes fallbackAttackLeft {
       0%, 100% { transform: translateX(0) translateY(0) scale(1); }
@@ -1821,9 +1833,10 @@
     if (!attacker || !defender || !projectile || !beam || !impact || !stage) return;
 
     const visual = inferMoveVisual(moveName);
-    projectile.className = `fallback-projectile ${visual.type || 'default'}`;
-    beam.className = `fallback-beam ${visual.type || 'default'}`;
-    impact.className = `fallback-impact ${visual.type || 'default'}`;
+    const visualClass = visual.family || visual.type || 'default';
+    projectile.className = `fallback-projectile ${visualClass}`;
+    beam.className = `fallback-beam ${visualClass}`;
+    impact.className = `fallback-impact ${visualClass}`;
     stage.classList.remove('camera-p1', 'camera-p2', 'impact', 'status-pulse');
     attacker.classList.remove('attacking');
     defender.classList.remove('hit');
@@ -1832,9 +1845,9 @@
     attacker.classList.add('attacking');
     stage.classList.add(attackerSide === 'p1' ? 'camera-p1' : 'camera-p2');
     if (visual.projectile === 'beam') {
-      beam.className = `fallback-beam ${visual.type || 'default'} active ${attackerSide === 'p1' ? 'left' : 'right'}`;
+      beam.className = `fallback-beam ${visualClass} active ${attackerSide === 'p1' ? 'left' : 'right'}`;
     } else if (visual.projectile !== 'none') {
-      projectile.className = `fallback-projectile ${visual.type || 'default'} active ${attackerSide === 'p1' ? 'left' : 'right'}`;
+      projectile.className = `fallback-projectile ${visualClass} active ${attackerSide === 'p1' ? 'left' : 'right'}`;
     }
     if (visual.type === 'status') {
       stage.classList.add('status-pulse');
@@ -1842,14 +1855,14 @@
     setTimeout(() => defender.classList.add('hit'), 220);
     setTimeout(() => {
       stage.classList.add('impact');
-      impact.className = `fallback-impact ${visual.type || 'default'} active ${attackerSide === 'p1' ? 'left' : 'right'}`;
+      impact.className = `fallback-impact ${visualClass} active ${attackerSide === 'p1' ? 'left' : 'right'}`;
     }, visual.projectile === 'beam' ? 180 : 240);
     setTimeout(() => {
       attacker.classList.remove('attacking');
       defender.classList.remove('hit');
-      projectile.className = `fallback-projectile ${visual.type || 'default'}`;
-      beam.className = `fallback-beam ${visual.type || 'default'}`;
-      impact.className = `fallback-impact ${visual.type || 'default'}`;
+      projectile.className = `fallback-projectile ${visualClass}`;
+      beam.className = `fallback-beam ${visualClass}`;
+      impact.className = `fallback-impact ${visualClass}`;
       stage.classList.remove('camera-p1', 'camera-p2', 'impact', 'status-pulse');
     }, 700);
   }
@@ -1872,27 +1885,27 @@
   function inferMoveVisual(moveName) {
     const move = (moveName || '').toLowerCase();
     const typeMap = [
-      { keys:['thunder','volt','electric','spark','zap'], color:'#ffd54d', type:'special', projectile:'beam', camera:'snap' },
-      { keys:['ice','freeze','blizzard','frost'], color:'#89e1ff', type:'special', projectile:'beam', camera:'glide' },
-      { keys:['flame','fire','blast','ember','flare','burn','heat','pyro'], color:'#ff8a5b', type:'special', projectile:'beam', camera:'snap' },
-      { keys:['water','hydro','surf','scald','bubble','aqua','wave','rend'], color:'#5bc0ff', type:'special', projectile:'beam', camera:'glide' },
-      { keys:['leaf','giga','seed','wood','grass','petal'], color:'#78df7d', type:'special', projectile:'orb', camera:'glide' },
-      { keys:['shadow','ghost','night','dark','phantom'], color:'#9a86ff', type:'special', projectile:'orb', camera:'snap' },
-      { keys:['dragon'], color:'#7e8bff', type:'special', projectile:'beam', camera:'snap' },
-      { keys:['rock','stone'], color:'#c7aa74', type:'physical', projectile:'orb', camera:'slam' },
-      { keys:['iron','metal','steel','flash-cannon','meteor'], color:'#d7e2f6', type:'physical', projectile:'beam', camera:'slam' },
-      { keys:['poison','sludge','toxic'], color:'#b56dff', type:'special', projectile:'orb', camera:'glide' },
-      { keys:['bug'], color:'#b6e24a', type:'physical', projectile:'orb', camera:'snap' },
-      { keys:['psychic','psy'], color:'#ff7ab3', type:'special', projectile:'beam', camera:'glide' },
-      { keys:['fighting','combat','punch','kick','chop'], color:'#ff9c73', type:'physical', projectile:'none', camera:'slam' },
-      { keys:['fairy','moon'], color:'#ffb6df', type:'special', projectile:'beam', camera:'glide' }
+      { keys:['thunder','volt','electric','spark','zap'], color:'#ffd54d', type:'special', family:'electric', projectile:'beam', camera:'snap' },
+      { keys:['ice','freeze','blizzard','frost'], color:'#89e1ff', type:'special', family:'ice', projectile:'beam', camera:'glide' },
+      { keys:['flame','fire','blast','ember','flare','burn','heat','pyro'], color:'#ff8a5b', type:'special', family:'fire', projectile:'beam', camera:'snap' },
+      { keys:['water','hydro','surf','scald','bubble','aqua','wave','rend'], color:'#5bc0ff', type:'special', family:'water', projectile:'beam', camera:'glide' },
+      { keys:['leaf','giga','seed','wood','grass','petal'], color:'#78df7d', type:'special', family:'grass', projectile:'orb', camera:'glide' },
+      { keys:['shadow','ghost','night','dark','phantom'], color:'#9a86ff', type:'special', family:'dark', projectile:'orb', camera:'snap' },
+      { keys:['dragon'], color:'#7e8bff', type:'special', family:'dragon', projectile:'beam', camera:'snap' },
+      { keys:['rock','stone'], color:'#c7aa74', type:'physical', family:'rock', projectile:'orb', camera:'slam' },
+      { keys:['iron','metal','steel','flash-cannon','meteor'], color:'#d7e2f6', type:'physical', family:'steel', projectile:'beam', camera:'slam' },
+      { keys:['poison','sludge','toxic'], color:'#b56dff', type:'special', family:'poison', projectile:'orb', camera:'glide' },
+      { keys:['bug'], color:'#b6e24a', type:'physical', family:'bug', projectile:'orb', camera:'snap' },
+      { keys:['psychic','psy'], color:'#ff7ab3', type:'special', family:'psychic', projectile:'beam', camera:'glide' },
+      { keys:['fighting','combat','punch','kick','chop'], color:'#ff9c73', type:'physical', family:'fighting', projectile:'none', camera:'slam' },
+      { keys:['fairy','moon'], color:'#ffb6df', type:'special', family:'fairy', projectile:'beam', camera:'glide' }
     ];
     const matched = typeMap.find(entry => entry.keys.some(key => move.includes(key)));
     if (matched) return matched;
     if (['protect','recover','roost','swords-dance','dragon-dance','calm-mind','nasty-plot','substitute','haze','spikes'].some(key => move.includes(key))) {
-      return { color:'#8ce8ff', type:'status', projectile:'none', camera:'status' };
+      return { color:'#8ce8ff', type:'status', family:'status', projectile:'none', camera:'status' };
     }
-    return { color:'#ffffff', type:'physical', projectile:'orb', camera:'snap' };
+    return { color:'#ffffff', type:'physical', family:'default', projectile:'orb', camera:'snap' };
   }
 
   function spawnProjectile(attackerSide, visual) {
