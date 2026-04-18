@@ -464,7 +464,7 @@
         <canvas id="battle3dCanvas"></canvas>
         <div id="threeFallback" class="three-fallback">
           <div class="fallback-stadium">
-            <div id="fallbackCopy" class="fallback-copy">3D stadium could not start yet. If WebGL or the Three.js CDN is blocked, the built-in fallback stadium will still track the battle.</div>
+            <div id="fallbackCopy" class="fallback-copy">Fallback Stadium Mode</div>
             <div class="fallback-floor"></div>
             <div class="fallback-platform left"></div>
             <div class="fallback-platform right"></div>
@@ -1412,7 +1412,7 @@
     if (!fallback) return;
     const copy = document.getElementById('fallbackCopy');
     if (copy) {
-      copy.textContent = message || '3D stadium unavailable.';
+      copy.textContent = 'Fallback Stadium Mode';
     }
     fallback.classList.add('show');
   }
