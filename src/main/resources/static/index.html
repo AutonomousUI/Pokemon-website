@@ -487,29 +487,6 @@
       </div>
     </div>
 
-    <div class="battle-top">
-      <div class="active-box">
-        <div class="active-stage">
-          <div id="p1ActiveFx" class="active-fx"></div>
-          <div id="p1ActiveWrap" class="active-sprite-wrap">
-            <img id="p1ActiveSprite" alt="">
-          </div>
-        </div>
-        <div id="p1ActiveName" class="active-name">Player 1</div>
-        <div id="p1ActiveHp" class="meta"></div>
-      </div>
-      <div class="active-box">
-        <div class="active-stage">
-          <div id="p2ActiveFx" class="active-fx"></div>
-          <div id="p2ActiveWrap" class="active-sprite-wrap">
-            <img id="p2ActiveSprite" alt="">
-          </div>
-        </div>
-        <div id="p2ActiveName" class="active-name">Player 2</div>
-        <div id="p2ActiveHp" class="meta"></div>
-      </div>
-    </div>
-
     <div class="arena-grid">
       <div class="card">
         <div class="card-title">Player 1</div>
@@ -1840,12 +1817,6 @@
 
     const p1 = data.player1Team?.[data.player1ActiveIndex];
     const p2 = data.player2Team?.[data.player2ActiveIndex];
-    document.getElementById('p1ActiveSprite').src = spriteUrl(p1?.speciesId, playerId === 'player1');
-    document.getElementById('p2ActiveSprite').src = spriteUrl(p2?.speciesId, playerId === 'player2');
-    document.getElementById('p1ActiveName').textContent = p1?.nickname || 'Player 1';
-    document.getElementById('p2ActiveName').textContent = p2?.nickname || ((battleMode === 'ai' || battleMode === 'competitive') ? 'AI' : 'Player 2');
-    document.getElementById('p1ActiveHp').textContent = p1 ? `${p1.currentHp}/${p1.maxHp} HP` : '';
-    document.getElementById('p2ActiveHp').textContent = p2 ? `${p2.currentHp}/${p2.maxHp} HP` : '';
     updateThreeBattleScene(p1, p2);
 
     renderTeamRows('team1Rows', data.player1Team, data.player1ActiveIndex);
