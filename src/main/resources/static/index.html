@@ -81,6 +81,17 @@
         radial-gradient(circle at 50% 18%, rgba(110,182,255,.16), transparent 28%),
         linear-gradient(180deg, rgba(11,18,29,.82), rgba(6,11,18,.96));
     }
+    .fallback-stadium.camera-p1 { animation: fallbackCameraP1 .72s ease-in-out; }
+    .fallback-stadium.camera-p2 { animation: fallbackCameraP2 .72s ease-in-out; }
+    .fallback-stadium.impact { animation: fallbackArenaImpact .52s ease-out; }
+    .fallback-stadium.status-pulse::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(141,200,255,.18), rgba(141,200,255,0));
+      animation: fallbackStatusPulse .56s ease-out;
+      pointer-events: none;
+    }
     .fallback-copy {
       position: absolute;
       left: 18px;
@@ -194,6 +205,50 @@
     .fallback-projectile.dark { color: #8da0c8; background: radial-gradient(circle, #d0daf8, #6b7699 44%, rgba(107,118,153,0)); }
     .fallback-projectile.grass { color: #7fe39b; background: radial-gradient(circle, #d7ffe2, #63d78a 44%, rgba(99,215,138,0)); }
     .fallback-projectile.default { color: #8dc8ff; background: radial-gradient(circle, #edf7ff, #7ab8ff 44%, rgba(122,184,255,0)); }
+    .fallback-beam {
+      position: absolute;
+      top: 51%;
+      height: 12px;
+      border-radius: 999px;
+      opacity: 0;
+      transform-origin: 0 50%;
+      pointer-events: none;
+      filter: blur(.4px) drop-shadow(0 0 20px currentColor);
+    }
+    .fallback-beam.active.left {
+      left: 29%;
+      width: 42%;
+      opacity: 1;
+      animation: fallbackBeamLeft .52s ease-out forwards;
+    }
+    .fallback-beam.active.right {
+      right: 29%;
+      width: 42%;
+      opacity: 1;
+      animation: fallbackBeamRight .52s ease-out forwards;
+    }
+    .fallback-impact {
+      position: absolute;
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      border: 2px solid currentColor;
+      opacity: 0;
+      pointer-events: none;
+      filter: drop-shadow(0 0 18px currentColor);
+    }
+    .fallback-impact.active.left {
+      right: 27%;
+      top: 42%;
+      opacity: 1;
+      animation: fallbackImpact .48s ease-out forwards;
+    }
+    .fallback-impact.active.right {
+      left: 27%;
+      top: 42%;
+      opacity: 1;
+      animation: fallbackImpact .48s ease-out forwards;
+    }
     @keyframes fallbackAttackLeft {
       0%, 100% { transform: translateX(0) translateY(0) scale(1); }
       40% { transform: translateX(34px) translateY(-4px) scale(1.06); }
@@ -217,6 +272,40 @@
       0% { transform: translate(0, 0) scale(.7); opacity: 0; }
       12% { opacity: 1; }
       100% { transform: translate(-430px, -72px) scale(1.25); opacity: 0; }
+    }
+    @keyframes fallbackBeamLeft {
+      0% { transform: scaleX(.08); opacity: 0; }
+      12% { opacity: 1; }
+      100% { transform: scaleX(1); opacity: 0; }
+    }
+    @keyframes fallbackBeamRight {
+      0% { transform: scaleX(.08); opacity: 0; }
+      12% { opacity: 1; }
+      100% { transform: scaleX(1); opacity: 0; }
+    }
+    @keyframes fallbackImpact {
+      0% { transform: scale(.45); opacity: 0; }
+      20% { opacity: .95; }
+      100% { transform: scale(4.4); opacity: 0; }
+    }
+    @keyframes fallbackCameraP1 {
+      0%,100% { transform: translateX(0) scale(1); }
+      32% { transform: translateX(18px) scale(1.035); }
+      65% { transform: translateX(6px) scale(1.02); }
+    }
+    @keyframes fallbackCameraP2 {
+      0%,100% { transform: translateX(0) scale(1); }
+      32% { transform: translateX(-18px) scale(1.035); }
+      65% { transform: translateX(-6px) scale(1.02); }
+    }
+    @keyframes fallbackArenaImpact {
+      0%,100% { filter: brightness(1); }
+      30% { filter: brightness(1.18); }
+    }
+    @keyframes fallbackStatusPulse {
+      0% { opacity: 0; transform: scale(.86); }
+      30% { opacity: 1; transform: scale(1); }
+      100% { opacity: 0; transform: scale(1.18); }
     }
     .three-label {
       position: absolute;
@@ -469,6 +558,8 @@
             <div class="fallback-platform left"></div>
             <div class="fallback-platform right"></div>
             <div id="fallbackProjectile" class="fallback-projectile default"></div>
+            <div id="fallbackBeam" class="fallback-beam default"></div>
+            <div id="fallbackImpact" class="fallback-impact default"></div>
             <div id="fallbackBattlerLeft" class="fallback-battler left">
               <img id="fallbackImgLeft" alt="Player 1 battler">
               <div id="fallbackNameLeft" class="fallback-name">Player 1</div>
@@ -1400,6 +1491,10 @@
     fallback.classList.remove('show');
   }
 
+  function fallbackStage() {
+    return document.querySelector('.fallback-stadium');
+  }
+
   function ensureThreeArena() {
     if (threeArena) return;
     if (!window.THREE) {
@@ -1498,6 +1593,11 @@
       renderer,
       scene,
       camera,
+      cameraBase: new THREE.Vector3(0, 6.2, 16),
+      cameraTargetBase: new THREE.Vector3(0, 2.6, 0),
+      cameraFocusOffset: new THREE.Vector3(0, 0, 0),
+      cameraLookOffset: new THREE.Vector3(0, 0, 0),
+      cameraShake: 0,
       stadium,
       ring,
       left: makeBattler(-4.5, 1.6, Math.PI / 9),
@@ -1522,6 +1622,16 @@
       const dt = Math.min(threeArena.clock.getDelta(), 0.05);
       threeArena.pulse += dt;
       threeArena.ring.material.emissiveIntensity = 0.95 + Math.sin(threeArena.pulse * 2.2) * 0.18;
+      threeArena.cameraFocusOffset.lerp(new THREE.Vector3(0, 0, 0), Math.min(1, dt * 3.2));
+      threeArena.cameraLookOffset.lerp(new THREE.Vector3(0, 0, 0), Math.min(1, dt * 3.2));
+      threeArena.cameraShake = Math.max(0, threeArena.cameraShake - dt * 2.2);
+      const shakeX = (Math.random() - 0.5) * threeArena.cameraShake * 0.36;
+      const shakeY = (Math.random() - 0.5) * threeArena.cameraShake * 0.18;
+      threeArena.camera.position.copy(threeArena.cameraBase).add(threeArena.cameraFocusOffset);
+      threeArena.camera.position.x += shakeX;
+      threeArena.camera.position.y += shakeY;
+      const lookAt = threeArena.cameraTargetBase.clone().add(threeArena.cameraLookOffset);
+      threeArena.camera.lookAt(lookAt);
       updateBattlerVisual(threeArena.left, dt, -4.5, 1.6);
       updateBattlerVisual(threeArena.right, dt, 4.5, -1.6);
       updateProjectiles(dt);
@@ -1595,6 +1705,22 @@
     });
   }
 
+  function kickThreeCamera(attackerSide, visual) {
+    if (!threeArena || !window.THREE) return;
+    const focus = attackerSide === 'p1'
+      ? new THREE.Vector3(-1.1, visual.camera === 'status' ? 0.2 : 0.45, visual.camera === 'slam' ? -0.6 : -0.2)
+      : new THREE.Vector3(1.1, visual.camera === 'status' ? 0.2 : 0.45, visual.camera === 'slam' ? 0.6 : 0.2);
+    const look = attackerSide === 'p1'
+      ? new THREE.Vector3(-0.65, 0.12, 0)
+      : new THREE.Vector3(0.65, 0.12, 0);
+    threeArena.cameraFocusOffset.copy(focus);
+    threeArena.cameraLookOffset.copy(look);
+    threeArena.cameraShake = visual.camera === 'slam' ? 0.55 : visual.camera === 'snap' ? 0.36 : 0.18;
+    if (visual.camera === 'status') {
+      threeArena.ring.material.emissiveIntensity = 2.2;
+    }
+  }
+
   function updateThreeBattleScene(p1, p2) {
     ensureThreeArena();
     if (!threeArena || !window.THREE) {
@@ -1618,11 +1744,19 @@
     const attacker = attackerSide === 'p1' ? threeArena.left : threeArena.right;
     const defender = attackerSide === 'p1' ? threeArena.right : threeArena.left;
     const visual = inferMoveVisual(moveName);
+    kickThreeCamera(attackerSide, visual);
     attacker.knockback = -0.42;
     defender.flash = 0.9;
     defender.knockback = 0.55;
 
-    const geometry = new THREE.SphereGeometry(0.32, 16, 16);
+    if (visual.projectile === 'none') {
+      threeArena.cameraShake = Math.max(threeArena.cameraShake, 0.62);
+      return;
+    }
+
+    const geometry = visual.projectile === 'beam'
+      ? new THREE.CapsuleGeometry(0.18, 1.8, 4, 8)
+      : new THREE.SphereGeometry(0.32, 16, 16);
     const material = new THREE.MeshBasicMaterial({
       color: visual.color,
       transparent: true,
@@ -1632,6 +1766,9 @@
     const start = attacker.group.position.clone().add(new THREE.Vector3(attackerSide === 'p1' ? 1.2 : -1.2, 2.4, 0));
     const end = defender.group.position.clone().add(new THREE.Vector3(attackerSide === 'p1' ? -0.8 : 0.8, 2.2, 0));
     mesh.position.copy(start);
+    if (visual.projectile === 'beam') {
+      mesh.rotation.z = Math.PI / 2;
+    }
     threeArena.scene.add(mesh);
     threeArena.projectiles.push({
       mesh,
@@ -1640,8 +1777,8 @@
       start,
       end,
       progress: 0,
-      duration: visual.type === 'physical' ? 0.34 : 0.48,
-      arc: visual.type === 'status' ? 0.9 : 0.45
+      duration: visual.projectile === 'beam' ? 0.28 : visual.type === 'physical' ? 0.34 : 0.48,
+      arc: visual.projectile === 'beam' ? 0.08 : visual.type === 'status' ? 0.9 : 0.45
     });
   }
 
@@ -1678,19 +1815,42 @@
     const attacker = document.getElementById(attackerSide === 'p1' ? 'fallbackBattlerLeft' : 'fallbackBattlerRight');
     const defender = document.getElementById(attackerSide === 'p1' ? 'fallbackBattlerRight' : 'fallbackBattlerLeft');
     const projectile = document.getElementById('fallbackProjectile');
-    if (!attacker || !defender || !projectile) return;
+    const beam = document.getElementById('fallbackBeam');
+    const impact = document.getElementById('fallbackImpact');
+    const stage = fallbackStage();
+    if (!attacker || !defender || !projectile || !beam || !impact || !stage) return;
 
     const visual = inferMoveVisual(moveName);
-    projectile.className = `fallback-projectile ${visual.type || 'default'} active ${attackerSide === 'p1' ? 'left' : 'right'}`;
+    projectile.className = `fallback-projectile ${visual.type || 'default'}`;
+    beam.className = `fallback-beam ${visual.type || 'default'}`;
+    impact.className = `fallback-impact ${visual.type || 'default'}`;
+    stage.classList.remove('camera-p1', 'camera-p2', 'impact', 'status-pulse');
     attacker.classList.remove('attacking');
     defender.classList.remove('hit');
     void attacker.offsetWidth;
+    void stage.offsetWidth;
     attacker.classList.add('attacking');
+    stage.classList.add(attackerSide === 'p1' ? 'camera-p1' : 'camera-p2');
+    if (visual.projectile === 'beam') {
+      beam.className = `fallback-beam ${visual.type || 'default'} active ${attackerSide === 'p1' ? 'left' : 'right'}`;
+    } else if (visual.projectile !== 'none') {
+      projectile.className = `fallback-projectile ${visual.type || 'default'} active ${attackerSide === 'p1' ? 'left' : 'right'}`;
+    }
+    if (visual.type === 'status') {
+      stage.classList.add('status-pulse');
+    }
     setTimeout(() => defender.classList.add('hit'), 220);
+    setTimeout(() => {
+      stage.classList.add('impact');
+      impact.className = `fallback-impact ${visual.type || 'default'} active ${attackerSide === 'p1' ? 'left' : 'right'}`;
+    }, visual.projectile === 'beam' ? 180 : 240);
     setTimeout(() => {
       attacker.classList.remove('attacking');
       defender.classList.remove('hit');
       projectile.className = `fallback-projectile ${visual.type || 'default'}`;
+      beam.className = `fallback-beam ${visual.type || 'default'}`;
+      impact.className = `fallback-impact ${visual.type || 'default'}`;
+      stage.classList.remove('camera-p1', 'camera-p2', 'impact', 'status-pulse');
     }, 700);
   }
 
@@ -1712,36 +1872,37 @@
   function inferMoveVisual(moveName) {
     const move = (moveName || '').toLowerCase();
     const typeMap = [
-      { keys:['thunder','volt','electric','spark','zap'], color:'#ffd54d', type:'special' },
-      { keys:['ice','freeze','blizzard','frost'], color:'#89e1ff', type:'special' },
-      { keys:['flame','fire','blast','ember','flare','burn','heat','pyro'], color:'#ff8a5b', type:'special' },
-      { keys:['water','hydro','surf','scald','bubble','aqua','wave','rend'], color:'#5bc0ff', type:'special' },
-      { keys:['leaf','giga','seed','wood','grass','petal'], color:'#78df7d', type:'special' },
-      { keys:['shadow','ghost','night','dark','phantom'], color:'#9a86ff', type:'special' },
-      { keys:['dragon'], color:'#7e8bff', type:'special' },
-      { keys:['rock','stone'], color:'#c7aa74', type:'physical' },
-      { keys:['iron','metal','steel','flash-cannon','meteor'], color:'#d7e2f6', type:'physical' },
-      { keys:['poison','sludge','toxic'], color:'#b56dff', type:'special' },
-      { keys:['bug'], color:'#b6e24a', type:'physical' },
-      { keys:['psychic','psy'], color:'#ff7ab3', type:'special' },
-      { keys:['fighting','combat','punch','kick','chop'], color:'#ff9c73', type:'physical' },
-      { keys:['fairy','moon'], color:'#ffb6df', type:'special' }
+      { keys:['thunder','volt','electric','spark','zap'], color:'#ffd54d', type:'special', projectile:'beam', camera:'snap' },
+      { keys:['ice','freeze','blizzard','frost'], color:'#89e1ff', type:'special', projectile:'beam', camera:'glide' },
+      { keys:['flame','fire','blast','ember','flare','burn','heat','pyro'], color:'#ff8a5b', type:'special', projectile:'beam', camera:'snap' },
+      { keys:['water','hydro','surf','scald','bubble','aqua','wave','rend'], color:'#5bc0ff', type:'special', projectile:'beam', camera:'glide' },
+      { keys:['leaf','giga','seed','wood','grass','petal'], color:'#78df7d', type:'special', projectile:'orb', camera:'glide' },
+      { keys:['shadow','ghost','night','dark','phantom'], color:'#9a86ff', type:'special', projectile:'orb', camera:'snap' },
+      { keys:['dragon'], color:'#7e8bff', type:'special', projectile:'beam', camera:'snap' },
+      { keys:['rock','stone'], color:'#c7aa74', type:'physical', projectile:'orb', camera:'slam' },
+      { keys:['iron','metal','steel','flash-cannon','meteor'], color:'#d7e2f6', type:'physical', projectile:'beam', camera:'slam' },
+      { keys:['poison','sludge','toxic'], color:'#b56dff', type:'special', projectile:'orb', camera:'glide' },
+      { keys:['bug'], color:'#b6e24a', type:'physical', projectile:'orb', camera:'snap' },
+      { keys:['psychic','psy'], color:'#ff7ab3', type:'special', projectile:'beam', camera:'glide' },
+      { keys:['fighting','combat','punch','kick','chop'], color:'#ff9c73', type:'physical', projectile:'none', camera:'slam' },
+      { keys:['fairy','moon'], color:'#ffb6df', type:'special', projectile:'beam', camera:'glide' }
     ];
     const matched = typeMap.find(entry => entry.keys.some(key => move.includes(key)));
     if (matched) return matched;
     if (['protect','recover','roost','swords-dance','dragon-dance','calm-mind','nasty-plot','substitute','haze','spikes'].some(key => move.includes(key))) {
-      return { color:'#8ce8ff', type:'status' };
+      return { color:'#8ce8ff', type:'status', projectile:'none', camera:'status' };
     }
-    return { color:'#ffffff', type:'physical' };
+    return { color:'#ffffff', type:'physical', projectile:'orb', camera:'snap' };
   }
 
   function spawnProjectile(attackerSide, visual) {
     const fx = activeFx(attackerSide);
-    if (!fx) return;
+    if (!fx || visual.projectile === 'none') return;
     const projectile = document.createElement('div');
-    projectile.className = `fx-projectile ${visual.type}${visual.type === 'physical' ? ' multi' : ''}${attackerSide === 'p2' ? ' from-right' : ''}`;
+    const projectileType = visual.projectile === 'beam' ? 'special' : visual.type;
+    projectile.className = `fx-projectile ${projectileType}${projectileType === 'physical' ? ' multi' : ''}${attackerSide === 'p2' ? ' from-right' : ''}`;
     projectile.style.color = visual.color;
-    projectile.style.background = visual.type === 'status' ? 'transparent' : visual.color;
+    projectile.style.background = projectileType === 'status' ? 'transparent' : visual.color;
     fx.appendChild(projectile);
     setTimeout(() => projectile.remove(), 650);
   }
@@ -1752,26 +1913,30 @@
     const defender = activeWrap(defenderSide);
     const attackerFx = activeFx(attackerSide);
     const defenderFx = activeFx(defenderSide);
-    if (!attacker || !defender || !attackerFx || !defenderFx) return;
-
-    clearAnimationClasses(attackerSide);
-    clearAnimationClasses(defenderSide);
 
     const visual = inferMoveVisual(moveName);
     playThreeAttackAnimation(attackerSide, moveName);
-    attacker.classList.add(attackerSide === 'p1' ? 'attacking-left' : 'attacking-right');
-    spawnProjectile(attackerSide, visual);
+    if (attacker && defender && attackerFx && defenderFx) {
+      clearAnimationClasses(attackerSide);
+      clearAnimationClasses(defenderSide);
+      attacker.classList.add(attackerSide === 'p1' ? 'attacking-left' : 'attacking-right');
+      spawnProjectile(attackerSide, visual);
+    }
     await wait(220);
-    defender.classList.add('hit');
-    defenderFx.classList.add('flash');
+    if (defender && defenderFx) {
+      defender.classList.add('hit');
+      defenderFx.classList.add('flash');
+    }
 
     if (extraLines.some(line => /drained hp|restored hp with shell bell/i.test(line))) {
-      attacker.classList.add('recoiling');
-      attackerFx.classList.add('flash');
+      if (attacker && attackerFx) {
+        attacker.classList.add('recoiling');
+        attackerFx.classList.add('flash');
+      }
     }
     if (extraLines.some(line => /fainted!/i.test(line))) {
       await wait(180);
-      defender.classList.add('fainted');
+      if (defender) defender.classList.add('fainted');
     }
     await wait(520);
     clearAnimationClasses(attackerSide);
