@@ -63,6 +63,12 @@ public enum HeldItem {
     FLAME_ORB("Flame Orb", "Burns the holder at the end of the turn."),
     TOXIC_ORB("Toxic Orb", "Badly poisons the holder at the end of the turn."),
 
+    // Weather-extending items
+    HEAT_ROCK("Heat Rock", "Extends the duration of sunny weather to 8 turns."),
+    DAMP_ROCK("DAMP Rock", "Extends the duration of rainy weather to 8 turns."),
+    SMOOTH_ROCK("Smooth Rock", "Extends the duration of a sandstorm to 8 turns."),
+    ICY_ROCK("Icy Rock", "Extends the duration of hail to 8 turns."),
+
     // Mega Stones
     VENUSAURITE("Venusaurite", "Allows Venusaur to Mega Evolve."),
     CHARIZARDITE_X("Charizardite X", "Allows Charizard to Mega Evolve into Mega Charizard X."),

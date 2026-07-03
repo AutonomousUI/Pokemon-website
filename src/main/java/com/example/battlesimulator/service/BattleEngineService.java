@@ -52,6 +52,7 @@ public class BattleEngineService {
     );
 
     private record MegaEvolutionData(String baseSpecies, String megaSpecies, Ability megaAbility) {}
+    private record PredictedAction(PlayerAction action, double score) {}
 
     public BattleEngineService(DamageCalculatorService damageCalculator,
                                AccuracyService accuracyService,
@@ -1276,20 +1277,20 @@ public class BattleEngineService {
                 break;
             // ── Weather-setting moves ────────────────────────────────────
             case "rain-dance":
-                setWeather(session, com.example.battlesimulator.model.enums.Weather.RAIN, log);
+                setWeather(attacker, session, com.example.battlesimulator.model.enums.Weather.RAIN, log);
                 break;
             case "sunny-day":
-                setWeather(session, com.example.battlesimulator.model.enums.Weather.SUN, log);
+                setWeather(attacker, session, com.example.battlesimulator.model.enums.Weather.SUN, log);
                 break;
             case "sandstorm":
-                setWeather(session, com.example.battlesimulator.model.enums.Weather.SAND, log);
+                setWeather(attacker, session, com.example.battlesimulator.model.enums.Weather.SAND, log);
                 break;
             case "hail":
-                setWeather(session, com.example.battlesimulator.model.enums.Weather.HAIL, log);
+                setWeather(attacker, session, com.example.battlesimulator.model.enums.Weather.HAIL, log);
                 break;
             case "snowscape":
             case "chilly-reception":
-                setWeather(session, com.example.battlesimulator.model.enums.Weather.HAIL, log);
+                setWeather(attacker, session, com.example.battlesimulator.model.enums.Weather.HAIL, log);
                 break;
             // ── Entry Hazards ────────────────────────────────────────────
             case "stealth-rock": {
@@ -1878,23 +1879,19 @@ public class BattleEngineService {
     }
 
     private PlayerAction chooseCompetitiveSimulatedAction(String battleId, String aiPlayerId, BattleSession session) {
-        String opponentId = "player1".equals(aiPlayerId) ? "player2" : "player1";
-        PlayerAction opponentAction = pendingActions.getOrDefault(battleId, List.of()).stream()
-                .filter(action -> opponentId.equals(action.playerId()))
-                .findFirst()
-                .orElse(null);
-        if (opponentAction == null) {
-            return groqBattleAiService.chooseAction(battleId, aiPlayerId, session);
-        }
-
         List<PlayerAction> candidates = generateCompetitiveCandidateActions(battleId, aiPlayerId, session);
         if (candidates.isEmpty()) {
             return groqBattleAiService.chooseAction(battleId, aiPlayerId, session);
         }
 
+        List<PredictedAction> opponentPredictions = predictOpponentActions(battleId, aiPlayerId, session);
+        if (opponentPredictions.isEmpty()) {
+            return groqBattleAiService.chooseAction(battleId, aiPlayerId, session);
+        }
+
         return candidates.stream()
                 .max(Comparator.comparingDouble(candidate ->
-                        evaluateCompetitiveCandidate(session, aiPlayerId, opponentAction, candidate)))
+                        evaluateCompetitiveCandidateExpectation(session, aiPlayerId, opponentPredictions, candidate)))
                 .orElseGet(() -> groqBattleAiService.chooseAction(battleId, aiPlayerId, session));
     }
 
@@ -1957,12 +1954,169 @@ public class BattleEngineService {
         return candidates;
     }
 
-    private double evaluateCompetitiveCandidate(BattleSession session, String aiPlayerId,
-                                                PlayerAction opponentAction, PlayerAction aiAction) {
-        BattleSession simulated = copyBattleSession(session, aiAction.battleId() + "-sim");
-        List<PlayerAction> actions = List.of(copyAction(opponentAction), copyAction(aiAction));
-        simulateResolvedTurn(simulated, actions);
-        return evaluateCompetitiveState(simulated, aiPlayerId);
+    private List<PredictedAction> predictOpponentActions(String battleId, String aiPlayerId, BattleSession session) {
+        String opponentId = "player1".equals(aiPlayerId) ? "player2" : "player1";
+        List<PlayerAction> opponentCandidates = generateCompetitiveCandidateActions(battleId, opponentId, session);
+        if (opponentCandidates.isEmpty()) {
+            return List.of();
+        }
+
+        List<PredictedAction> scored = opponentCandidates.stream()
+                .map(action -> new PredictedAction(action, Math.max(1.0,
+                        evaluateOpponentActionLikelihood(session, opponentId, action))))
+                .sorted(Comparator.comparingDouble(PredictedAction::score).reversed())
+                .limit(6)
+                .toList();
+        double total = scored.stream().mapToDouble(PredictedAction::score).sum();
+        if (total <= 0.0) {
+            double uniform = 1.0 / scored.size();
+            return scored.stream()
+                    .map(prediction -> new PredictedAction(prediction.action(), uniform))
+                    .toList();
+        }
+        return scored.stream()
+                .map(prediction -> new PredictedAction(prediction.action(), prediction.score() / total))
+                .toList();
+    }
+
+    private double evaluateOpponentActionLikelihood(BattleSession session, String opponentId, PlayerAction action) {
+        boolean opponentIsPlayerOne = "player1".equals(opponentId);
+        BattlePokemon actor = opponentIsPlayerOne ? session.getPlayer1Active() : session.getPlayer2Active();
+        BattlePokemon defender = opponentIsPlayerOne ? session.getPlayer2Active() : session.getPlayer1Active();
+        List<BattlePokemon> team = opponentIsPlayerOne ? session.getPlayer1Team() : session.getPlayer2Team();
+        if (actor == null || actor.isFainted() || action == null) {
+            return 1.0;
+        }
+
+        if ("SWITCH".equalsIgnoreCase(action.actionType())) {
+            if (action.switchIndex() == null || team == null || action.switchIndex() < 0 || action.switchIndex() >= team.size()) {
+                return 1.0;
+            }
+            BattlePokemon candidate = team.get(action.switchIndex());
+            if (candidate == null || candidate.isFainted() || candidate == actor) {
+                return 1.0;
+            }
+            double currentThreat = estimateMoveThreat(actor, defender);
+            double incomingDanger = estimateMoveThreat(defender, actor);
+            double switchSafety = evaluateSwitchTarget(candidate, defender);
+            double lowHpPressure = actor.getMaxHp() > 0 && actor.getCurrentHp() < actor.getMaxHp() / 3 ? 45.0 : 0.0;
+            return switchSafety + incomingDanger * 0.65 + lowHpPressure - currentThreat * 0.45;
+        }
+
+        Move move = actor.getMoves().stream()
+                .filter(candidate -> candidate != null && candidate.id().equalsIgnoreCase(action.targetId()))
+                .findFirst()
+                .orElse(null);
+        if (move == null) {
+            return 1.0;
+        }
+        double score = estimateSingleMoveThreat(move, actor, defender);
+        if (move.category() == com.example.battlesimulator.model.enums.MoveCategory.STATUS) {
+            score += estimateStatusIntent(move, actor, defender);
+        }
+        if (defender != null && move.priority() <= 0 && effectiveSpeed(actor, session) < effectiveSpeed(defender, session)) {
+            score -= 12.0;
+        }
+        return score;
+    }
+
+    private double estimateMoveThreat(BattlePokemon attacker, BattlePokemon defender) {
+        if (attacker == null || defender == null) {
+            return 0.0;
+        }
+        return attacker.getMoves().stream()
+                .filter(move -> move != null)
+                .mapToDouble(move -> estimateSingleMoveThreat(move, attacker, defender))
+                .max()
+                .orElse(0.0);
+    }
+
+    private double estimateSingleMoveThreat(Move move, BattlePokemon attacker, BattlePokemon defender) {
+        if (move == null || attacker == null) {
+            return 0.0;
+        }
+        if (move.category() == com.example.battlesimulator.model.enums.MoveCategory.STATUS) {
+            return estimateStatusIntent(move, attacker, defender);
+        }
+        double multiplier = 1.0;
+        if (defender != null) {
+            Type type2 = defender.getType2() != null ? defender.getType2() : Type.NONE;
+            multiplier = com.example.battlesimulator.util.TypeChart.getMultiplier(move.type(), defender.getType1())
+                    * com.example.battlesimulator.util.TypeChart.getMultiplier(move.type(), type2);
+        }
+        if (multiplier == 0.0) {
+            return 1.0;
+        }
+        double stab = attacker.getType1() == move.type() || attacker.getType2() == move.type() ? 1.5 : 1.0;
+        double attackStat = move.category() == com.example.battlesimulator.model.enums.MoveCategory.PHYSICAL
+                ? attacker.getAttack() : attacker.getSpecialAttack();
+        double defenseStat = defender == null ? 100.0
+                : move.category() == com.example.battlesimulator.model.enums.MoveCategory.PHYSICAL
+                ? defender.getDefense() : defender.getSpecialDefense();
+        double offensiveRatio = defenseStat <= 0 ? attackStat : attackStat / defenseStat;
+        double accuracy = move.accuracy() <= 0 ? 1.0 : move.accuracy() / 100.0;
+        double expected = Math.max(move.basePower(), 1) * multiplier * stab * offensiveRatio * accuracy * 5.5;
+        if (defender != null && defender.getMaxHp() > 0 && expected >= defender.getCurrentHp() * 100.0 / defender.getMaxHp()) {
+            expected += 85.0;
+        }
+        if (move.priority() > 0) {
+            expected += 18.0 * move.priority();
+        }
+        return expected;
+    }
+
+    private double estimateStatusIntent(Move move, BattlePokemon attacker, BattlePokemon defender) {
+        if (move == null || attacker == null) {
+            return 0.0;
+        }
+        String id = move.id().toLowerCase();
+        double hpRatio = attacker.getMaxHp() > 0 ? (double) attacker.getCurrentHp() / attacker.getMaxHp() : 0.0;
+        return switch (id) {
+            case "dragon-dance", "swords-dance", "nasty-plot", "calm-mind", "quiver-dance", "belly-drum" ->
+                    hpRatio > 0.60 && estimateMoveThreat(defender, attacker) < 55.0 ? 90.0 : 35.0;
+            case "recover", "roost", "synthesis", "slack-off", "soft-boiled", "rest", "milk-drink", "moonlight", "shore-up" ->
+                    Math.max(8.0, 100.0 - hpRatio * 100.0);
+            case "haze", "clear-smog" -> hasMajorBoosts(defender) ? 100.0 : 20.0;
+            case "thunder-wave", "will-o-wisp", "toxic", "sleep-powder" -> 58.0;
+            case "spikes", "stealth-rock", "sticky-web", "toxic-spikes" -> 42.0;
+            default -> 18.0 + move.priority() * 8.0;
+        };
+    }
+
+    private double evaluateSwitchTarget(BattlePokemon candidate, BattlePokemon opponent) {
+        if (candidate == null || candidate.isFainted()) {
+            return 0.0;
+        }
+        double hpRatio = candidate.getMaxHp() > 0 ? (double) candidate.getCurrentHp() / candidate.getMaxHp() : 0.0;
+        double outgoing = estimateMoveThreat(candidate, opponent);
+        double incoming = estimateMoveThreat(opponent, candidate);
+        double bulk = (candidate.getDefense() + candidate.getSpecialDefense()) * 0.06;
+        double speed = candidate.getSpeed() * 0.04;
+        return outgoing + hpRatio * 85.0 + bulk + speed - incoming;
+    }
+
+    private boolean hasMajorBoosts(BattlePokemon pokemon) {
+        if (pokemon == null) {
+            return false;
+        }
+        return pokemon.getAttackStage() >= 2
+                || pokemon.getDefenseStage() >= 2
+                || pokemon.getSpecialAttackStage() >= 2
+                || pokemon.getSpecialDefenseStage() >= 2
+                || pokemon.getSpeedStage() >= 2;
+    }
+
+    private double evaluateCompetitiveCandidateExpectation(BattleSession session, String aiPlayerId,
+                                                           List<PredictedAction> opponentPredictions,
+                                                           PlayerAction aiAction) {
+        double expected = 0.0;
+        for (PredictedAction prediction : opponentPredictions) {
+            BattleSession simulated = copyBattleSession(session, aiAction.battleId() + "-sim");
+            List<PlayerAction> actions = List.of(copyAction(prediction.action()), copyAction(aiAction));
+            simulateResolvedTurn(simulated, actions);
+            expected += prediction.score() * evaluateCompetitiveState(simulated, aiPlayerId);
+        }
+        return expected;
     }
 
     private PlayerAction copyAction(PlayerAction action) {
@@ -2314,6 +2468,21 @@ public class BattleEngineService {
         return priority;
     }
 
+    private double effectiveSpeed(BattlePokemon pokemon, BattleSession session) {
+        if (pokemon == null) {
+            return 0.0;
+        }
+        double paralysisFactor = pokemon.getStatusCondition() == com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS ? 0.5 : 1.0;
+        double scarfFactor = pokemon.getHeldItem() == HeldItem.CHOICE_SCARF ? 1.5 : 1.0;
+        double ironBallFactor = pokemon.getHeldItem() == HeldItem.IRON_BALL ? 0.5 : 1.0;
+        return pokemon.getSpeed()
+                * stageMultiplier(pokemon.getSpeedStage())
+                * paralysisFactor
+                * scarfFactor
+                * ironBallFactor
+                * abilitySpeedFactor(pokemon, session);
+    }
+
     private boolean isHealingMove(Move move) {
         return java.util.Set.of(
                 "recover", "roost", "soft-boiled", "slack-off", "synthesis", "moonlight",
@@ -2367,6 +2536,13 @@ public class BattleEngineService {
     }
 
     /** Returns a speed multiplier granted by the Pokémon's ability given the current weather. */
+    private boolean isAbilitySuppressed(BattlePokemon pokemon, BattleSession session) {
+        if (pokemon == null) return false;
+        if (session.getPlayer1Active() != null && session.getPlayer1Active().getAbility() == Ability.NEUTRALIZING_GAS) return true;
+        if (session.getPlayer2Active() != null && session.getPlayer2Active().getAbility() == Ability.NEUTRALIZING_GAS) return true;
+        return false;
+    }
+
     private double abilitySpeedFactor(BattlePokemon pokemon, BattleSession session) {
         if (pokemon.getAbility() == null) return 1.0;
         com.example.battlesimulator.model.enums.Weather w = session.getWeather();
@@ -2414,10 +2590,10 @@ public class BattleEngineService {
                     }
                 }
             }
-            case DRIZZLE  -> setWeather(session, com.example.battlesimulator.model.enums.Weather.RAIN, log);
+            case DRIZZLE  -> setWeather(incoming, session, com.example.battlesimulator.model.enums.Weather.RAIN, log);
             case DROUGHT  -> setWeather(session, com.example.battlesimulator.model.enums.Weather.SUN,  log);
-            case SAND_STREAM -> setWeather(session, com.example.battlesimulator.model.enums.Weather.SAND, log);
-            case SNOW_WARNING -> setWeather(session, com.example.battlesimulator.model.enums.Weather.HAIL, log);
+            case SAND_STREAM -> setWeather(incoming, session, com.example.battlesimulator.model.enums.Weather.SAND, log);
+            case SNOW_WARNING -> setWeather(incoming, session, com.example.battlesimulator.model.enums.Weather.HAIL, log);
             case ELECTRIC_SURGE -> setTerrain(session, Terrain.ELECTRIC, log);
             case PSYCHIC_SURGE -> setTerrain(session, Terrain.PSYCHIC, log);
             case GRASSY_SURGE -> setTerrain(session, Terrain.GRASSY, log);
