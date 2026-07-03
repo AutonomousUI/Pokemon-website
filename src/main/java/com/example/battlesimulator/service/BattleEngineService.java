@@ -532,8 +532,8 @@ public class BattleEngineService {
         if (!p2.isFainted()) applyEndOfTurnAbilityEffects(p2, session, log);
 
         // End-of-turn held item effects
-        if (!p1.isFainted()) applyEndOfTurnItemEffects(p1, log);
-        if (!p2.isFainted()) applyEndOfTurnItemEffects(p2, log);
+        if (!p1.isFainted()) applyEndOfTurnItemEffects(p1, session, log);
+        if (!p2.isFainted()) applyEndOfTurnItemEffects(p2, session, log);
 
         // End-of-turn volatile condition countdowns (taunt)
         if (!p1.isFainted()) tickVolatileConditions(p1, log);
@@ -636,7 +636,7 @@ public class BattleEngineService {
 
         if (attacker.getHeldItem() == HeldItem.CUSTAP_BERRY
                 && !attacker.isBerryUsed()
-                && shouldTriggerPinchBerry(attacker)) {
+                && shouldTriggerPinchBerry(attacker, session)) {
             attacker.setBerryUsed(true);
             consumeHeldItem(attacker);
             log.add(attacker.getNickname() + " consumed its Custap Berry!");
@@ -780,6 +780,19 @@ public class BattleEngineService {
             if (mid.equals("baneful-bunker") && isContactMove(move))
                 applyStatus(attacker, com.example.battlesimulator.model.enums.StatusCondition.POISON, log);
             return;
+        }
+
+        // Stance Change
+        if (attacker.getAbility() == com.example.battlesimulator.model.enums.Ability.STANCE_CHANGE) {
+            if (move.category() != com.example.battlesimulator.model.enums.MoveCategory.STATUS && attacker.getDefense() > attacker.getAttack()) {
+                log.add(attacker.getNickname() + " changed to Blade Forme!");
+                int tempA = attacker.getAttack(); attacker.setAttack(attacker.getDefense()); attacker.setDefense(tempA);
+                int tempSA = attacker.getSpecialAttack(); attacker.setSpecialAttack(attacker.getSpecialDefense()); attacker.setSpecialDefense(tempSA);
+            } else if (move.id().equals("king-s-shield") && attacker.getAttack() > attacker.getDefense()) {
+                log.add(attacker.getNickname() + " changed to Shield Forme!");
+                int tempA = attacker.getAttack(); attacker.setAttack(attacker.getDefense()); attacker.setDefense(tempA);
+                int tempSA = attacker.getSpecialAttack(); attacker.setSpecialAttack(attacker.getSpecialDefense()); attacker.setSpecialDefense(tempSA);
+            }
         }
 
         // ── Two-turn moves: charging turn ─────────────────────────────────
@@ -2339,8 +2352,8 @@ public class BattleEngineService {
         if (!p2.isFainted()) applyEndOfTurnStatus(p2, log);
         if (!p1.isFainted()) applyEndOfTurnAbilityEffects(p1, session, log);
         if (!p2.isFainted()) applyEndOfTurnAbilityEffects(p2, session, log);
-        if (!p1.isFainted()) applyEndOfTurnItemEffects(p1, log);
-        if (!p2.isFainted()) applyEndOfTurnItemEffects(p2, log);
+        if (!p1.isFainted()) applyEndOfTurnItemEffects(p1, session, log);
+        if (!p2.isFainted()) applyEndOfTurnItemEffects(p2, session, log);
         if (!p1.isFainted()) tickVolatileConditions(p1, log);
         if (!p2.isFainted()) tickVolatileConditions(p2, log);
         applyEndOfTurnWeather(session, p1, p2, log);
@@ -2612,6 +2625,15 @@ public class BattleEngineService {
     }
 
     /** Returns a speed multiplier granted by the Pokémon's ability given the current weather. */
+    private boolean isOpponentUnnerve(BattlePokemon pokemon, BattleSession session) {
+        if (session == null) return false;
+        BattlePokemon opp = (session.getPlayer1Active() == pokemon) ? session.getPlayer2Active() : session.getPlayer1Active();
+        if (opp != null && opp.getAbility() == com.example.battlesimulator.model.enums.Ability.UNNERVE && !isAbilitySuppressed(session)) {
+            return true;
+        }
+        return false;
+    }
+
     private boolean isAbilitySuppressed(BattleSession session) {
         if (session == null) return false;
         if (session.getPlayer1Active() != null && session.getPlayer1Active().getAbility() == Ability.NEUTRALIZING_GAS) return true;
@@ -3077,6 +3099,15 @@ public class BattleEngineService {
                                         Move move, BattleSession session, List<String> log) {
         Ability defenderAbility = defender.getAbility();
         Type moveType = resolveMoveType(attacker, move);
+        switch (defenderAbility) {
+            case ANGER_POINT -> { log.add(defender.getNickname() + " maxed its Attack out of anger!"); defender.setAttackStage(6); }
+            case ANGER_SHELL -> { if(defender.getCurrentHp() <= defender.getMaxHp()/2) { applyStage(defender, "defense", -1, log); applyStage(defender, "specialDefense", -1, log); applyStage(defender, "attack", 1, log); applyStage(defender, "specialAttack", 1, log); applyStage(defender, "speed", 1, log); } }
+            case COTTON_DOWN -> { applyStage(attacker, "speed", -1, log); }
+            case CURSED_BODY -> { if(rng.nextDouble() < 0.3) { log.add(attacker.getNickname() + "'s move was disabled by Cursed Body!"); } }
+            case MIRROR_ARMOR -> { log.add(defender.getNickname() + "'s Mirror Armor reflects stat drops!"); }
+            case GULP_MISSILE -> { if(defender.getSpeciesId().equals("cramorant")) { attacker.setCurrentHp(Math.max(0, attacker.getCurrentHp() - attacker.getMaxHp()/4)); applyStage(attacker, "defense", -1, log); log.add(defender.getNickname() + " spat out its catch!"); } }
+            default -> {}
+        }
         if (defender.getHeldItem() == HeldItem.AIR_BALLOON && !defender.isAirBalloonPopped()) {
             defender.setAirBalloonPopped(true);
             log.add(defender.getNickname() + "'s Air Balloon popped!");
@@ -3093,6 +3124,10 @@ public class BattleEngineService {
             consumeHeldItem(defender);
             applyStage(defender, "specialAttack", 1, log);
             log.add(defender.getNickname() + "'s Absorb Bulb boosted its Sp. Atk!");
+        }
+        if (defender.isFainted() && defenderAbility == com.example.battlesimulator.model.enums.Ability.AFTERMATH && isContactMove(move)) {
+            attacker.setCurrentHp(Math.max(0, attacker.getCurrentHp() - attacker.getMaxHp() / 4));
+            log.add(attacker.getNickname() + " was hurt by " + defender.getNickname() + "'s Aftermath!");
         }
         if (defender.getHeldItem() == HeldItem.JABOCA_BERRY
                 && move.category() == com.example.battlesimulator.model.enums.MoveCategory.PHYSICAL
@@ -3174,6 +3209,7 @@ public class BattleEngineService {
             applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.POISON, attacker, log);
         }
         switch (defender.getAbility()) {
+            case GOOEY, TANGLING_HAIR -> { applyStage(attacker, "speed", -1, log); log.add(attacker.getNickname() + "'s Speed fell due to the opponent's Ability!"); }
             case STATIC -> {
                 if (rng.nextInt(10) < 3) { // 30%
                     applyStatus(attacker, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, log);
@@ -3280,7 +3316,7 @@ public class BattleEngineService {
      * End-of-turn held item effects: Leftovers, Black Sludge, berries,
      * Flame Orb, Toxic Orb.
      */
-    private void applyEndOfTurnItemEffects(BattlePokemon pokemon, List<String> log) {
+    private void applyEndOfTurnItemEffects(BattlePokemon pokemon, BattleSession session, List<String> log) {
         switch (pokemon.getHeldItem()) {
             case LEFTOVERS -> {
                 if (pokemon.getCurrentHp() < pokemon.getMaxHp()) {
@@ -3305,6 +3341,7 @@ public class BattleEngineService {
                 }
             }
             case SITRUS_BERRY -> {
+                if (isOpponentUnnerve(pokemon, session)) break;
                 if (!pokemon.isBerryUsed() && pokemon.getCurrentHp() <= pokemon.getMaxHp() / 2) {
                     int heal = pokemon.getMaxHp() / 4;
                     pokemon.setCurrentHp(Math.min(pokemon.getMaxHp(), pokemon.getCurrentHp() + heal));
@@ -3315,6 +3352,7 @@ public class BattleEngineService {
                 }
             }
             case ORAN_BERRY -> {
+                if (isOpponentUnnerve(pokemon, session)) break;
                 if (!pokemon.isBerryUsed() && pokemon.getCurrentHp() <= pokemon.getMaxHp() / 2) {
                     pokemon.setCurrentHp(Math.min(pokemon.getMaxHp(), pokemon.getCurrentHp() + 10));
                     consumeHeldItem(pokemon);
@@ -3324,6 +3362,7 @@ public class BattleEngineService {
                 }
             }
             case LUM_BERRY -> {
+                if (isOpponentUnnerve(pokemon, session)) break;
                 if (!pokemon.isBerryUsed()
                         && pokemon.getStatusCondition() != com.example.battlesimulator.model.enums.StatusCondition.NONE) {
                     pokemon.setStatusCondition(com.example.battlesimulator.model.enums.StatusCondition.NONE);
@@ -3335,12 +3374,12 @@ public class BattleEngineService {
                     if (pokemon.getAbility() == Ability.UNBURDEN) { pokemon.setUnburdened(true); log.add(pokemon.getNickname() + "'s Unburden doubled its Speed!"); }
                 }
             }
-            case SALAC_BERRY -> tryActivatePinchBerry(pokemon, "speed", 1, log);
-            case LIECHI_BERRY -> tryActivatePinchBerry(pokemon, "attack", 1, log);
-            case PETAYA_BERRY -> tryActivatePinchBerry(pokemon, "specialAttack", 1, log);
-            case APICOT_BERRY -> tryActivatePinchBerry(pokemon, "specialDefense", 1, log);
+            case SALAC_BERRY -> tryActivatePinchBerry(pokemon, session, "speed", 1, log);
+            case LIECHI_BERRY -> tryActivatePinchBerry(pokemon, session, "attack", 1, log);
+            case PETAYA_BERRY -> tryActivatePinchBerry(pokemon, session, "specialAttack", 1, log);
+            case APICOT_BERRY -> tryActivatePinchBerry(pokemon, session, "specialDefense", 1, log);
             case LANSAT_BERRY -> {
-                if (shouldTriggerPinchBerry(pokemon)) {
+                if (shouldTriggerPinchBerry(pokemon, session)) {
                     consumeHeldItem(pokemon);
                     pokemon.setBerryUsed(true);
                     pokemon.setCritStageBonus(pokemon.getCritStageBonus() + 2);
@@ -3348,7 +3387,7 @@ public class BattleEngineService {
                 }
             }
             case STARF_BERRY -> {
-                if (shouldTriggerPinchBerry(pokemon)) {
+                if (shouldTriggerPinchBerry(pokemon, session)) {
                     consumeHeldItem(pokemon);
                     pokemon.setBerryUsed(true);
                     applyStage(pokemon, randomBoostableStat(), 2, log);
@@ -3356,7 +3395,7 @@ public class BattleEngineService {
                 }
             }
             case MICLE_BERRY -> {
-                if (shouldTriggerPinchBerry(pokemon)) {
+                if (shouldTriggerPinchBerry(pokemon, session)) {
                     consumeHeldItem(pokemon);
                     pokemon.setBerryUsed(true);
                     pokemon.setMiclePrimed(true);
@@ -3371,8 +3410,8 @@ public class BattleEngineService {
         }
     }
 
-    private void tryActivatePinchBerry(BattlePokemon pokemon, String stat, int stages, List<String> log) {
-        if (!shouldTriggerPinchBerry(pokemon)) {
+    private void tryActivatePinchBerry(BattlePokemon pokemon, BattleSession session, String stat, int stages, List<String> log) {
+        if (!shouldTriggerPinchBerry(pokemon, session)) {
             return;
         }
         String berryName = pokemon.getHeldItem().getDisplayName();
@@ -3382,7 +3421,8 @@ public class BattleEngineService {
         log.add(pokemon.getNickname() + " ate its " + berryName + "!");
     }
 
-    private boolean shouldTriggerPinchBerry(BattlePokemon pokemon) {
+    private boolean shouldTriggerPinchBerry(BattlePokemon pokemon, BattleSession session) {
+        if (isOpponentUnnerve(pokemon, session)) return false;
         if (pokemon.isBerryUsed()) {
             return false;
         }
