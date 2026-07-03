@@ -782,6 +782,13 @@ public class BattleEngineService {
         String moveId = move.id().toLowerCase();
         boolean isTwoTurn = isTwoTurnMove(moveId);
         if (isTwoTurn && attacker.getChargingMove() == null) {
+            if (attacker.getHeldItem() == HeldItem.POWER_HERB) {
+                log.add(attacker.getNickname() + " became fully charged due to its Power Herb!");
+                attacker.setHeldItem(HeldItem.NONE);
+                consumeHeldItem(attacker);
+            } else if (session.getWeather() == com.example.battlesimulator.model.enums.Weather.SUN && (moveId.equals("solar-beam") || moveId.equals("solar-blade"))) {
+                // Skips charge in Sun
+            } else {
             // Start charging — skip the damage this turn
             attacker.setChargingMove(moveId);
             String chargeMsg = switch (moveId) {
@@ -797,16 +804,34 @@ public class BattleEngineService {
             };
             log.add(chargeMsg);
             return;
+            }
         }
         // Second turn: clear charging state, proceed with full damage
         if (isTwoTurn && moveId.equals(attacker.getChargingMove())) {
             attacker.setChargingMove(null);
         }
 
+        // Z-Move
+        boolean isZMove = false;
+        if (attacker.getHeldItem() != null && attacker.getHeldItem().name().endsWith("_Z") && move.category() != com.example.battlesimulator.model.enums.MoveCategory.STATUS) {
+            com.example.battlesimulator.model.enums.HeldItem item = attacker.getHeldItem();
+            com.example.battlesimulator.model.enums.Type mType = move.type();
+            if ((item == HeldItem.NORMALIUM_Z && mType == com.example.battlesimulator.model.enums.Type.NORMAL) ||
+                (item == HeldItem.FIRIUM_Z && mType == com.example.battlesimulator.model.enums.Type.FIRE) ||
+                (item == HeldItem.WATERIUM_Z && mType == com.example.battlesimulator.model.enums.Type.WATER) ||
+                (item == HeldItem.GRASSIUM_Z && mType == com.example.battlesimulator.model.enums.Type.GRASS) ||
+                (item == HeldItem.ELECTRIUM_Z && mType == com.example.battlesimulator.model.enums.Type.ELECTRIC)) {
+                log.add(attacker.getNickname() + " unleashed its full Z-Power!");
+                attacker.setHeldItem(HeldItem.NONE);
+                consumeHeldItem(attacker);
+                isZMove = true;
+            }
+        }
+
         // ── Fixed-damage moves ─────────────────────────────────────────────
         Integer fixedDamage = getFixedDamage(attacker, defender, move);
         if (fixedDamage != null) {
-            if (!accuracyService.doesMoveHit(attacker, defender, move)) {
+            if (!isZMove && !accuracyService.doesMoveHit(attacker, defender, move)) {
                 log.add(attacker.getNickname() + "'s attack missed!");
                 return;
             }
@@ -822,7 +847,7 @@ public class BattleEngineService {
         // ── Multi-hit moves ────────────────────────────────────────────────
         int hitCount = (attacker.getAbility() == Ability.SKILL_LINK) ? getSkillLinkHitCount(move) : getMultiHitCount(move);
 
-        if (!accuracyService.doesMoveHit(attacker, defender, move)) {
+        if (!isZMove && !accuracyService.doesMoveHit(attacker, defender, move)) {
             log.add(attacker.getNickname() + "'s attack missed!");
             return;
         }
@@ -831,6 +856,7 @@ public class BattleEngineService {
         int actualHits  = 0;
         for (int hit = 0; hit < hitCount && !defender.isFainted(); hit++) {
             int damage = damageCalculator.calculateDamage(attacker, defender, move, session.getWeather());
+            if (isZMove) damage = (int)(damage * 2.5);
             damage = Math.max(0, (int) Math.floor(damage * semiInvulnerableResolution.damageMultiplier()));
             int defenderHpBefore = defender.getCurrentHp();
 
@@ -1458,6 +1484,17 @@ public class BattleEngineService {
                 log.add(attacker.getNickname() + " foresaw an attack! " + fsName + " in 2 turns!");
                 break;
             }
+            // ── Trick Room ──
+            case "trick-room": {
+                if (session.getTrickRoomTurnsRemaining() > 0) {
+                    session.setTrickRoomTurnsRemaining(0);
+                    log.add("The twisted dimensions returned to normal!");
+                } else {
+                    session.setTrickRoomTurnsRemaining(5);
+                    log.add(attacker.getNickname() + " twisted the dimensions!");
+                }
+                break;
+            }
             // ── Protect / Detect / King's Shield / Spiky Shield / Baneful Bunker ──
             case "protect":
             case "detect":
@@ -1644,11 +1681,17 @@ public class BattleEngineService {
     /**
      * Sets the battlefield weather for 5 turns, replacing any existing weather.
      */
-    private void setWeather(BattleSession session,
-                            com.example.battlesimulator.model.enums.Weather weather,
-                            List<String> log) {
+    private void setWeather(BattlePokemon setter, BattleSession session, com.example.battlesimulator.model.enums.Weather weather, List<String> log) {
         session.setWeather(weather);
-        session.setWeatherTurnsRemaining(5);
+        int duration = 5;
+        if (setter != null && setter.getHeldItem() != null) {
+            com.example.battlesimulator.model.enums.HeldItem item = setter.getHeldItem();
+            if (weather == com.example.battlesimulator.model.enums.Weather.RAIN && item == com.example.battlesimulator.model.enums.HeldItem.DAMP_ROCK) duration = 8;
+            else if (weather == com.example.battlesimulator.model.enums.Weather.SUN && item == com.example.battlesimulator.model.enums.HeldItem.HEAT_ROCK) duration = 8;
+            else if (weather == com.example.battlesimulator.model.enums.Weather.SAND && item == com.example.battlesimulator.model.enums.HeldItem.SMOOTH_ROCK) duration = 8;
+            else if (weather == com.example.battlesimulator.model.enums.Weather.HAIL && item == com.example.battlesimulator.model.enums.HeldItem.ICY_ROCK) duration = 8;
+        }
+        session.setWeatherTurnsRemaining(duration);
         switch (weather) {
             case RAIN -> log.add("It started to rain!");
             case SUN  -> log.add("The sunlight turned harsh!");
@@ -2543,6 +2586,13 @@ public class BattleEngineService {
         return false;
     }
 
+    private boolean isAbilitySuppressed(BattleSession session) {
+        if (session == null) return false;
+        if (session.getPlayer1Active() != null && session.getPlayer1Active().getAbility() == Ability.NEUTRALIZING_GAS) return true;
+        if (session.getPlayer2Active() != null && session.getPlayer2Active().getAbility() == Ability.NEUTRALIZING_GAS) return true;
+        return false;
+    }
+
     private double abilitySpeedFactor(BattlePokemon pokemon, BattleSession session) {
         if (pokemon.getAbility() == null) return 1.0;
         com.example.battlesimulator.model.enums.Weather w = session.getWeather();
@@ -2574,6 +2624,13 @@ public class BattleEngineService {
         incoming.setSlowStartTurns(5);
         incoming.setSupremeOverlordStacks(countFaintedAllies(incoming, session));
         switch (incoming.getAbility()) {
+            case AIR_LOCK, CLOUD_NINE -> log.add(incoming.getNickname() + "'s ability suppressed the effects of the weather!");
+            case ILLUSION -> { log.add(incoming.getNickname() + " cast an Illusion!"); }
+            case IMPOSTER -> { if (opponent != null) log.add(incoming.getNickname() + " transformed into " + opponent.getNickname() + "!"); }
+            case COMMANDER -> { log.add(incoming.getNickname() + " was swallowed by Dondozo! (Stats boosted)"); applyStage(incoming, "attack", 2, log); applyStage(incoming, "specialAttack", 2, log); applyStage(incoming, "speed", 2, log); }
+            case SCHOOLING -> { if(incoming.getCurrentHp() > incoming.getMaxHp()/4) log.add(incoming.getNickname() + " formed a school!"); }
+            case SHIELDS_DOWN -> { if(incoming.getCurrentHp() > incoming.getMaxHp()/2) log.add(incoming.getNickname() + "'s shields are up!"); }
+            case MIMICRY -> { if(session.getTerrain()!=com.example.battlesimulator.model.enums.Terrain.NONE) log.add(incoming.getNickname() + "'s type changed to match the terrain!"); }
             case INTIMIDATE -> {
                 if (opponent != null && !opponent.isFainted()) {
                     // Clear Body / White Smoke / Full Metal Body block Intimidate
@@ -2591,7 +2648,7 @@ public class BattleEngineService {
                 }
             }
             case DRIZZLE  -> setWeather(incoming, session, com.example.battlesimulator.model.enums.Weather.RAIN, log);
-            case DROUGHT  -> setWeather(session, com.example.battlesimulator.model.enums.Weather.SUN,  log);
+            case DROUGHT  -> setWeather(incoming, session, com.example.battlesimulator.model.enums.Weather.SUN,  log);
             case SAND_STREAM -> setWeather(incoming, session, com.example.battlesimulator.model.enums.Weather.SAND, log);
             case SNOW_WARNING -> setWeather(incoming, session, com.example.battlesimulator.model.enums.Weather.HAIL, log);
             case ELECTRIC_SURGE -> setTerrain(session, Terrain.ELECTRIC, log);
@@ -2698,6 +2755,7 @@ public class BattleEngineService {
         // Note: perishCount and futureSightTurns intentionally persist through switch
         if (withdrawing == null || withdrawing.getAbility() == null) return;
         switch (withdrawing.getAbility()) {
+            case ZERO_TO_HERO -> { if(withdrawing.getSpeciesId().equals("palafin")) log.add(withdrawing.getNickname() + " underwent a Heroic Transformation!"); }
             case NATURAL_CURE -> {
                 if (withdrawing.getStatusCondition() != com.example.battlesimulator.model.enums.StatusCondition.NONE) {
                     withdrawing.setStatusCondition(com.example.battlesimulator.model.enums.StatusCondition.NONE);

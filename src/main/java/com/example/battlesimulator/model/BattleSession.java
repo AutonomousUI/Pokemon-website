@@ -35,6 +35,9 @@ public class BattleSession {
     private com.example.battlesimulator.model.enums.Terrain terrain
             = com.example.battlesimulator.model.enums.Terrain.NONE;
     private int terrainTurnsRemaining = 0;
+    
+    // Field Effects
+    private int trickRoomTurnsRemaining = 0;
 
     // Entry Hazards — "Player1" side = hazards on Player1's field (hurt Player1's incoming mons)
     private int spikesPlayer1     = 0; // 0–3 layers

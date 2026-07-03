@@ -83,7 +83,14 @@ public enum HeldItem {
     GARCHOMPITE("Garchompite", "Allows Garchomp to Mega Evolve."),
     SALAMENCITE("Salamencite", "Allows Salamence to Mega Evolve."),
     SABLENITE("Sablenite", "Allows Sableye to Mega Evolve."),
-    METAGROSSITE("Metagrossite", "Allows Metagross to Mega Evolve.");
+    METAGROSSITE("Metagrossite", "Allows Metagross to Mega Evolve."),
+
+    // Z-Crystals
+    NORMALIUM_Z("Normalium Z", "Upgrades Normal-type moves to Z-Moves."),
+    FIRIUM_Z("Firium Z", "Upgrades Fire-type moves to Z-Moves."),
+    WATERIUM_Z("Waterium Z", "Upgrades Water-type moves to Z-Moves."),
+    GRASSIUM_Z("Grassium Z", "Upgrades Grass-type moves to Z-Moves."),
+    ELECTRIUM_Z("Electrium Z", "Upgrades Electric-type moves to Z-Moves.");
 
     private final String displayName;
     private final String description;
