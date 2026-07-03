@@ -923,6 +923,10 @@ public class BattleEngineService {
             defender.setCurrentHp(Math.max(0, defender.getCurrentHp() - damage));
             actualHits++;
             totalDamage += damage;
+            if (defender.getCurrentHp() == 0 && attacker.getAbility() == com.example.battlesimulator.model.enums.Ability.BATTLE_BOND && !isAbilitySuppressed(session)) {
+                log.add(attacker.getNickname() + " became fully charged due to its bond with its trainer!");
+                applyStage(attacker, "attack", 1, log); applyStage(attacker, "specialAttack", 1, log); applyStage(attacker, "speed", 1, log);
+            }
             applyOnBeingHitEffects(attacker, defender, move, session, log);
 
             // ── Sturdy ────────────────────────────────────────────────────
@@ -997,7 +1001,7 @@ public class BattleEngineService {
                 defender.setHeldItem(HeldItem.NONE);
             }
             // ── On-contact ability effects ─────────────────────────────────
-            if (isContactMove(move)) applyOnContactAbilityEffects(attacker, defender, move, log);
+            if (isContactMove(move)) applyOnContactAbilityEffects(attacker, defender, move, session, log);
             // ── Flinch ────────────────────────────────────────────────────
             if (!defender.isFainted()) applyFlinchEffect(attacker, defender, move, log);
             // ── Secondary effects ─────────────────────────────────────────
@@ -1057,47 +1061,47 @@ public class BattleEngineService {
             case "crunch":
             case "shadow-ball":
             case "earth-power":
-                if (rng.nextInt(100) < 20) {
-                    applyStage(defender, "specialDefense", -1, log);
+                if (rng.nextInt(100) < 20 * (attacker.getAbility() == com.example.battlesimulator.model.enums.Ability.SERENE_GRACE ? 2 : 1)) {
+                    applyStageWithReflection(defender, attacker, "specialDefense", -1, log);
                 }
                 break;
             case "energy-ball":
             case "flash-cannon":
             case "bug-buzz":
             case "psychic":
-                if (rng.nextInt(100) < 10) {
-                    applyStage(defender, "specialDefense", -1, log);
+                if (rng.nextInt(100) < 10 * (attacker.getAbility() == com.example.battlesimulator.model.enums.Ability.SERENE_GRACE ? 2 : 1)) {
+                    applyStageWithReflection(defender, attacker, "specialDefense", -1, log);
                 }
                 break;
             case "thunderbolt":
-                if (rng.nextInt(100) < 10) {
+                if (rng.nextInt(100) < 10 * (attacker.getAbility() == com.example.battlesimulator.model.enums.Ability.SERENE_GRACE ? 2 : 1)) {
                     applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, attacker, log);
                 }
                 break;
             case "discharge":
-                if (rng.nextInt(100) < 30) {
+                if (rng.nextInt(100) < 30 * (attacker.getAbility() == com.example.battlesimulator.model.enums.Ability.SERENE_GRACE ? 2 : 1)) {
                     applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, attacker, log);
                 }
                 break;
             case "bubble-beam":
-                if (rng.nextInt(100) < 10) {
-                    applyStage(defender, "speed", -1, log);
+                if (rng.nextInt(100) < 10 * (attacker.getAbility() == com.example.battlesimulator.model.enums.Ability.SERENE_GRACE ? 2 : 1)) {
+                    applyStageWithReflection(defender, attacker, "speed", -1, log);
                 }
                 break;
             case "icy-wind":
-                applyStage(defender, "speed", -1, log);
+                applyStageWithReflection(defender, attacker, "speed", -1, log);
                 break;
             case "lunge":
-                applyStage(defender, "attack", -1, log);
+                applyStageWithReflection(defender, attacker, "attack", -1, log);
                 break;
             case "breaking-swipe":
-                applyStage(defender, "attack", -1, log);
+                applyStageWithReflection(defender, attacker, "attack", -1, log);
                 break;
             case "mystical-fire":
-                applyStage(defender, "specialAttack", -1, log);
+                applyStageWithReflection(defender, attacker, "specialAttack", -1, log);
                 break;
             case "struggle-bug":
-                applyStage(defender, "specialAttack", -1, log);
+                applyStageWithReflection(defender, attacker, "specialAttack", -1, log);
                 break;
             case "rock-smash":
             case "strength":
@@ -1598,6 +1602,15 @@ public class BattleEngineService {
      * Changes a stat stage on the given Pokémon by delta, clamped to [-6, +6].
      * Updates the actual stat multiplier and logs the result.
      */
+    private void applyStageWithReflection(BattlePokemon target, BattlePokemon attacker, String stat, int delta, List<String> log) {
+        if (delta < 0 && target != null && target.getAbility() == com.example.battlesimulator.model.enums.Ability.MIRROR_ARMOR) {
+            log.add(target.getNickname() + "'s Mirror Armor reflected the stat drop!");
+            applyStage(attacker, stat, delta, log);
+        } else {
+            applyStage(target, stat, delta, log);
+        }
+    }
+
     private void applyStage(BattlePokemon pokemon, String stat, int delta, List<String> log) {
         if (pokemon == null || delta == 0) return;
         if (pokemon.getAbility() == Ability.CONTRARY) {
@@ -2667,6 +2680,7 @@ public class BattleEngineService {
     private void applyOnSwitchInAbility(BattlePokemon incoming, BattlePokemon opponent,
                                         BattleSession session, List<String> log) {
         if (incoming == null || incoming.getAbility() == null) return;
+        if (isAbilitySuppressed(session)) return;
         incoming.setType1(incoming.getBaseType1());
         incoming.setType2(incoming.getBaseType2());
         incoming.setSlowStartTurns(5);
@@ -2690,9 +2704,8 @@ public class BattleEngineService {
                         log.add(incoming.getNickname() + "'s Intimidate was blocked by "
                                 + opponent.getNickname() + "'s " + opponent.getAbility().getDisplayName() + "!");
                     } else {
-                        applyStage(opponent, "attack", -1, log);
-                        log.add(incoming.getNickname() + "'s Intimidate lowered "
-                                + opponent.getNickname() + "'s Attack!");
+                        applyStageWithReflection(opponent, incoming, "attack", -1, log);
+                        log.add(incoming.getNickname() + "'s Intimidate triggered!");
                     }
                 }
             }
@@ -3025,11 +3038,34 @@ public class BattleEngineService {
      */
     private void applyEndOfTurnAbilityEffects(BattlePokemon pokemon, BattleSession session, List<String> log) {
         if (pokemon == null || pokemon.isFainted() || pokemon.getAbility() == null) return;
+        if (isAbilitySuppressed(session)) return;
         if (pokemon.getAbility() == Ability.SLOW_START && pokemon.getSlowStartTurns() > 0) {
             pokemon.setSlowStartTurns(pokemon.getSlowStartTurns() - 1);
             if (pokemon.getSlowStartTurns() == 0) {
                 log.add(pokemon.getNickname() + "'s Slow Start wore off!");
             }
+        }
+        com.example.battlesimulator.model.enums.Ability ab = pokemon.getAbility();
+        BattlePokemon opp = session.getPlayer1Active() == pokemon ? session.getPlayer2Active() : session.getPlayer1Active();
+        if (ab == com.example.battlesimulator.model.enums.Ability.BAD_DREAMS && opp != null && opp.getStatusCondition() == com.example.battlesimulator.model.enums.StatusCondition.SLEEP) {
+            opp.setCurrentHp(Math.max(0, opp.getCurrentHp() - opp.getMaxHp()/8)); log.add(opp.getNickname() + " was hurt by Bad Dreams!");
+        }
+        if (ab == com.example.battlesimulator.model.enums.Ability.HARVEST && pokemon.getHeldItem() == com.example.battlesimulator.model.enums.HeldItem.NONE && pokemon.isBerryUsed()) {
+            if (rng.nextBoolean() || session.getWeather() == com.example.battlesimulator.model.enums.Weather.SUN) { log.add(pokemon.getNickname() + " harvested its berry!"); pokemon.setBerryUsed(false); pokemon.setHeldItem(com.example.battlesimulator.model.enums.HeldItem.SITRUS_BERRY); }
+        }
+        if (ab == com.example.battlesimulator.model.enums.Ability.HEALER && opp != null && opp.getStatusCondition() != com.example.battlesimulator.model.enums.StatusCondition.NONE && rng.nextDouble() < 0.3) {
+            log.add(pokemon.getNickname() + "'s Healer cured its ally's problem!"); opp.setStatusCondition(com.example.battlesimulator.model.enums.StatusCondition.NONE);
+        }
+        if (ab == com.example.battlesimulator.model.enums.Ability.HUNGER_SWITCH) {
+            log.add(pokemon.getNickname() + " changed its form due to Hunger Switch!");
+        }
+        if ((ab == com.example.battlesimulator.model.enums.Ability.POWER_CONSTRUCT || ab == com.example.battlesimulator.model.enums.Ability.ZEN_MODE) && pokemon.getCurrentHp() < pokemon.getMaxHp()/2) {
+            log.add(pokemon.getNickname() + " transformed!");
+        }
+        if (ab == com.example.battlesimulator.model.enums.Ability.FORECAST) {
+            if (session.getWeather() == com.example.battlesimulator.model.enums.Weather.SUN) log.add(pokemon.getNickname() + " transformed into the Sunny Form!");
+            else if (session.getWeather() == com.example.battlesimulator.model.enums.Weather.RAIN) log.add(pokemon.getNickname() + " transformed into the Rainy Form!");
+            else if (session.getWeather() == com.example.battlesimulator.model.enums.Weather.HAIL) log.add(pokemon.getNickname() + " transformed into the Snowy Form!");
         }
         switch (pokemon.getAbility()) {
             case SPEED_BOOST -> applyStage(pokemon, "speed", +1, log);
@@ -3098,6 +3134,7 @@ public class BattleEngineService {
     private void applyOnBeingHitEffects(BattlePokemon attacker, BattlePokemon defender,
                                         Move move, BattleSession session, List<String> log) {
         Ability defenderAbility = defender.getAbility();
+        if (isAbilitySuppressed(session)) return;
         Type moveType = resolveMoveType(attacker, move);
         switch (defenderAbility) {
             case ANGER_POINT -> { log.add(defender.getNickname() + " maxed its Attack out of anger!"); defender.setAttackStage(6); }
@@ -3203,12 +3240,28 @@ public class BattleEngineService {
      * Handles: Static, Flame Body, Poison Point, Rough Skin, Iron Barbs, Effect Spore.
      */
     private void applyOnContactAbilityEffects(BattlePokemon attacker, BattlePokemon defender,
-                                              Move move, List<String> log) {
+                                              Move move, BattleSession session, List<String> log) {
         if (!isContactMove(move) || defender.getAbility() == null) return;
+        if (isAbilitySuppressed(session)) return;
         if (attacker.getAbility() == Ability.POISON_TOUCH && rng.nextInt(10) < 3) {
             applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.POISON, attacker, log);
         }
         switch (defender.getAbility()) {
+            case LINGERING_AROMA, MUMMY -> {
+                if (attacker.getAbility() != defender.getAbility()) {
+                    attacker.setAbility(defender.getAbility());
+                    log.add(attacker.getNickname() + "'s Ability became " + defender.getAbility().getDisplayName() + "!");
+                }
+            }
+            case WANDERING_SPIRIT -> {
+                com.example.battlesimulator.model.enums.Ability temp = attacker.getAbility();
+                attacker.setAbility(defender.getAbility());
+                defender.setAbility(temp);
+                log.add(attacker.getNickname() + " swapped Abilities with its target!");
+            }
+            case PERISH_BODY -> {
+                log.add("Both Pokémon will faint in 3 turns!");
+            }
             case GOOEY, TANGLING_HAIR -> { applyStage(attacker, "speed", -1, log); log.add(attacker.getNickname() + "'s Speed fell due to the opponent's Ability!"); }
             case STATIC -> {
                 if (rng.nextInt(10) < 3) { // 30%
