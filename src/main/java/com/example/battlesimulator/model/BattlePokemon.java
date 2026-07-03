@@ -20,6 +20,8 @@ public class BattlePokemon {
     private String nickname;
     private int level;
     private Nature nature;
+    @Builder.Default private com.example.battlesimulator.model.enums.Gender gender = com.example.battlesimulator.model.enums.Gender.GENDERLESS;
+
     private StatBlock ivs;
     private StatBlock evs;
     private Type type1;

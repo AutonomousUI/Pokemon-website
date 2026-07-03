@@ -935,8 +935,12 @@ public class BattleEngineService {
                 damage = (int)(damage / 1.5);
             }
             if (attacker.getAbility() == Ability.RIVALRY && !isAbilitySuppressed(session)) {
-                if (rng.nextBoolean()) damage = (int)(damage * 1.25);
-                else damage = (int)(damage * 0.75);
+                com.example.battlesimulator.model.enums.Gender atkG = attacker.getGender();
+                com.example.battlesimulator.model.enums.Gender defG = defender.getGender();
+                if (atkG != com.example.battlesimulator.model.enums.Gender.GENDERLESS && defG != com.example.battlesimulator.model.enums.Gender.GENDERLESS) {
+                    if (atkG == defG) damage = (int)(damage * 1.25);
+                    else damage = (int)(damage * 0.75);
+                }
             }
             
             if (isZMove) damage = (int)(damage * 2.5);
