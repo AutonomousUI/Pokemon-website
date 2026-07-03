@@ -61,6 +61,10 @@ public class BattlePokemon {
     @Builder.Default private boolean trapped          = false;   // Cannot switch out
     @Builder.Default private int     critStageBonus   = 0;      // Extra crit stages (Super Luck)
     @Builder.Default private int     pressurePpDrain  = 0;      // Extra PP drain on opponents (Pressure — tracked on defender side)
+    
+    // Perish Song / Body
+    @Builder.Default private boolean perishSongActive = false;
+    @Builder.Default private int     perishSongTurns  = 0;
 
     // Two-turn move charging state
     @Builder.Default private String  chargingMove     = null;   // move id being charged (null = not charging)

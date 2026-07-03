@@ -778,7 +778,7 @@ public class BattleEngineService {
             }
             // Baneful Bunker: contact moves poison attacker
             if (mid.equals("baneful-bunker") && isContactMove(move))
-                applyStatus(attacker, com.example.battlesimulator.model.enums.StatusCondition.POISON, log);
+                applyStatus(session, attacker, com.example.battlesimulator.model.enums.StatusCondition.POISON, log);
             return;
         }
 
@@ -910,7 +910,35 @@ public class BattleEngineService {
         int totalDamage = 0;
         int actualHits  = 0;
         for (int hit = 0; hit < hitCount && !defender.isFainted(); hit++) {
+            int oldDef = defender.getDefenseStage();
+            int oldSpDef = defender.getSpecialDefenseStage();
+            if (triggeredZCrystal == HeldItem.INCINIUM_Z) {
+                if (oldDef > 0) defender.setDefenseStage(0);
+                if (oldSpDef > 0) defender.setSpecialDefenseStage(0);
+            }
+            if (triggeredZCrystal == HeldItem.MARSHADIUM_Z) {
+                if (oldDef > 0) { applyStage(attacker, "defense", oldDef, log); defender.setDefenseStage(0); }
+                if (oldSpDef > 0) { applyStage(attacker, "specialDefense", oldSpDef, log); defender.setSpecialDefenseStage(0); }
+                if (defender.getAttackStage() > 0) { applyStage(attacker, "attack", defender.getAttackStage(), log); defender.setAttackStage(0); }
+                if (defender.getSpecialAttackStage() > 0) { applyStage(attacker, "specialAttack", defender.getSpecialAttackStage(), log); defender.setSpecialAttackStage(0); }
+                if (defender.getSpeedStage() > 0) { applyStage(attacker, "speed", defender.getSpeedStage(), log); defender.setSpeedStage(0); }
+            }
+            
             int damage = damageCalculator.calculateDamage(attacker, defender, move, session.getWeather());
+            
+            if (triggeredZCrystal == HeldItem.INCINIUM_Z) {
+                defender.setDefenseStage(oldDef);
+                defender.setSpecialDefenseStage(oldSpDef);
+            }
+            
+            if (defender.getAbility() == Ability.GRASSY_PELT && session.getTerrain() == com.example.battlesimulator.model.enums.Terrain.GRASSY && move.category() == com.example.battlesimulator.model.enums.MoveCategory.PHYSICAL && !isAbilitySuppressed(session)) {
+                damage = (int)(damage / 1.5);
+            }
+            if (attacker.getAbility() == Ability.RIVALRY && !isAbilitySuppressed(session)) {
+                if (rng.nextBoolean()) damage = (int)(damage * 1.25);
+                else damage = (int)(damage * 0.75);
+            }
+            
             if (isZMove) damage = (int)(damage * 2.5);
             damage = Math.max(0, (int) Math.floor(damage * semiInvulnerableResolution.damageMultiplier()));
             int defenderHpBefore = defender.getCurrentHp();
@@ -1030,7 +1058,7 @@ public class BattleEngineService {
             // ── Flinch ────────────────────────────────────────────────────
             if (!defender.isFainted()) applyFlinchEffect(attacker, defender, move, log);
             // ── Secondary effects ─────────────────────────────────────────
-            applySecondaryEffect(attacker, defender, move, log);
+            applySecondaryEffect(attacker, defender, move, session, log);
             if (attacker.getHeldItem() == HeldItem.THROAT_SPRAY && isSoundMove(move)) {
                 consumeHeldItem(attacker);
                 applyStage(attacker, "specialAttack", 1, log);
@@ -1048,12 +1076,22 @@ public class BattleEngineService {
         if (triggeredZCrystal != null && !defender.isFainted()) {
             if (triggeredZCrystal == HeldItem.ALORAICHIUM_Z) {
                 log.add(attacker.getNickname() + " used Stoked Sparksurfer!");
-                applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, attacker, log);
+                applyStatus(session, defender, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, attacker, log);
             } else if (triggeredZCrystal == HeldItem.MEWNIUM_Z) {
                 log.add(attacker.getNickname() + " used Genesis Supernova!");
                 session.setTerrain(com.example.battlesimulator.model.enums.Terrain.PSYCHIC);
                 session.setTerrainTurnsRemaining(5);
                 log.add("The battlefield got weird! (Psychic Terrain)");
+            } else if (triggeredZCrystal == HeldItem.PRIMARIUM_Z) {
+                log.add(attacker.getNickname() + " used Oceanic Operetta!");
+                if (defender.getStatusCondition() == com.example.battlesimulator.model.enums.StatusCondition.BURN) {
+                    defender.setStatusCondition(com.example.battlesimulator.model.enums.StatusCondition.NONE);
+                    log.add(defender.getNickname() + "'s burn was healed by the water!");
+                }
+            } else if (triggeredZCrystal == HeldItem.MARSHADIUM_Z) {
+                log.add(attacker.getNickname() + " used Soul-Stealing 7-Star Strike!");
+            } else if (triggeredZCrystal == HeldItem.INCINIUM_Z) {
+                log.add(attacker.getNickname() + " used Malicious Moonsault!");
             }
         }
     }
@@ -1063,7 +1101,7 @@ public class BattleEngineService {
      * e.g. Draco Meteor drops the user's Sp. Atk by 2 after hitting,
      *      Close Combat drops user's Def and Sp. Def by 1, etc.
      */
-    private void applySecondaryEffect(BattlePokemon attacker, BattlePokemon defender, Move move, List<String> log) {
+    private void applySecondaryEffect(BattlePokemon attacker, BattlePokemon defender, Move move, BattleSession session, List<String> log) {
         switch (move.id().toLowerCase()) {
             // ── User stat drops (guaranteed on hit) ─────────────────────
             case "draco-meteor":
@@ -1111,12 +1149,12 @@ public class BattleEngineService {
                 break;
             case "thunderbolt":
                 if (rng.nextInt(100) < 10 * (attacker.getAbility() == com.example.battlesimulator.model.enums.Ability.SERENE_GRACE ? 2 : 1)) {
-                    applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, attacker, log);
+                    applyStatus(session, defender, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, attacker, log);
                 }
                 break;
             case "discharge":
                 if (rng.nextInt(100) < 30 * (attacker.getAbility() == com.example.battlesimulator.model.enums.Ability.SERENE_GRACE ? 2 : 1)) {
-                    applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, attacker, log);
+                    applyStatus(session, defender, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, attacker, log);
                 }
                 break;
             case "bubble-beam":
@@ -1341,17 +1379,17 @@ public class BattleEngineService {
                 applyStage(defender, "speed", -2, log);
                 break;
             case "thunder-wave":
-                applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, attacker, log);
+                applyStatus(session, defender, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, attacker, log);
                 break;
             case "will-o-wisp":
-                applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.BURN, attacker, log);
+                applyStatus(session, defender, com.example.battlesimulator.model.enums.StatusCondition.BURN, attacker, log);
                 break;
             case "toxic":
-                applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.TOXIC, attacker, log);
+                applyStatus(session, defender, com.example.battlesimulator.model.enums.StatusCondition.TOXIC, attacker, log);
                 break;
             case "poison-powder":
             case "poison-gas":
-                applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.POISON, attacker, log);
+                applyStatus(session, defender, com.example.battlesimulator.model.enums.StatusCondition.POISON, attacker, log);
                 break;
             case "sleep-powder":
             case "spore":
@@ -1360,15 +1398,15 @@ public class BattleEngineService {
             case "lovely-kiss":
             case "darkvoid":
             case "grass-whistle":
-                applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.SLEEP, log);
+                applyStatus(session, defender, com.example.battlesimulator.model.enums.StatusCondition.SLEEP, log);
                 break;
             case "stun-spore":
             case "glare":
             case "nuzzle":
-                applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, attacker, log);
+                applyStatus(session, defender, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, attacker, log);
                 break;
             case "toxic-thread":
-                applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.POISON, attacker, log);
+                applyStatus(session, defender, com.example.battlesimulator.model.enums.StatusCondition.POISON, attacker, log);
                 applyStage(defender, "speed", -1, log);
                 break;
             // ── Weather-setting moves ────────────────────────────────────
@@ -1711,10 +1749,10 @@ public class BattleEngineService {
      * Attempts to inflict a non-volatile status condition.
      * Fails if the target already has any status condition.
      */
-    private void applyStatus(BattlePokemon target,
+    private void applyStatus(BattleSession session, BattlePokemon target,
                              com.example.battlesimulator.model.enums.StatusCondition condition,
                              List<String> log) {
-        applyStatus(target, condition, null, log);
+        applyStatus(session, target, condition, null, log);
     }
 
     /**
@@ -1722,7 +1760,7 @@ public class BattleEngineService {
      * If target has Synchronize and the condition is burn/poison/paralysis,
      * the same condition is passed back to the source (if provided).
      */
-    private void applyStatus(BattlePokemon target,
+    private void applyStatus(BattleSession session, BattlePokemon target,
                              com.example.battlesimulator.model.enums.StatusCondition condition,
                              BattlePokemon source,
                              List<String> log) {
@@ -1731,7 +1769,7 @@ public class BattleEngineService {
             return;
         }
         // Ability type-based immunities
-        if (isStatusBlockedByAbility(target, condition, log)) return;
+        if (isStatusBlockedByAbility(target, condition, session, log)) return;
         target.setStatusCondition(condition);
         switch (condition) {
             case BURN      -> log.add(target.getNickname() + " was burned!");
@@ -1753,7 +1791,7 @@ public class BattleEngineService {
                 || condition == com.example.battlesimulator.model.enums.StatusCondition.TOXIC
                 || condition == com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS)) {
             log.add(target.getNickname() + "'s Synchronize passed the status to " + source.getNickname() + "!");
-            applyStatus(source, condition, null, log);
+            applyStatus(session, source, condition, null, log);
         }
     }
 
@@ -3014,9 +3052,13 @@ public class BattleEngineService {
      * Returns true if the ability BLOCKS the status (and logs it).
      */
     private boolean isStatusBlockedByAbility(BattlePokemon target,
-                                             com.example.battlesimulator.model.enums.StatusCondition condition,
+                                             com.example.battlesimulator.model.enums.StatusCondition condition, BattleSession session,
                                              List<String> log) {
         Ability ability = target.getAbility();
+        if (ability == Ability.LEAF_GUARD && session != null && session.getWeather() == com.example.battlesimulator.model.enums.Weather.SUN) {
+            log.add(target.getNickname() + "'s Leaf Guard prevents status conditions in harsh sunlight!");
+            return true;
+        }
         if (ability == null) return false;
         return switch (condition) {
             case POISON, TOXIC -> {
@@ -3093,15 +3135,30 @@ public class BattleEngineService {
             log.add(pokemon.getNickname() + "'s Healer cured its ally's problem!"); opp.setStatusCondition(com.example.battlesimulator.model.enums.StatusCondition.NONE);
         }
         if (ab == com.example.battlesimulator.model.enums.Ability.HUNGER_SWITCH) {
-            log.add(pokemon.getNickname() + " changed its form due to Hunger Switch!");
+            if (pokemon.getType2() == com.example.battlesimulator.model.enums.Type.DARK) {
+                pokemon.setType2(com.example.battlesimulator.model.enums.Type.ELECTRIC);
+                log.add(pokemon.getNickname() + " reverted to its Full Belly Mode!");
+            } else {
+                pokemon.setType2(com.example.battlesimulator.model.enums.Type.DARK);
+                log.add(pokemon.getNickname() + " changed to its Hangry Mode!");
+            }
         }
-        if ((ab == com.example.battlesimulator.model.enums.Ability.POWER_CONSTRUCT || ab == com.example.battlesimulator.model.enums.Ability.ZEN_MODE) && pokemon.getCurrentHp() < pokemon.getMaxHp()/2) {
-            log.add(pokemon.getNickname() + " transformed!");
+        if (ab == com.example.battlesimulator.model.enums.Ability.POWER_CONSTRUCT && pokemon.getCurrentHp() < pokemon.getMaxHp() / 2 && pokemon.getMaxHp() < 300) {
+            log.add(pokemon.getNickname() + " transformed into its Complete Forme!");
+            int extraHp = pokemon.getMaxHp(); // roughly double HP
+            pokemon.setMaxHp(pokemon.getMaxHp() + extraHp);
+            pokemon.setCurrentHp(pokemon.getCurrentHp() + extraHp);
+        }
+        if (ab == com.example.battlesimulator.model.enums.Ability.ZEN_MODE && pokemon.getCurrentHp() < pokemon.getMaxHp() / 2 && pokemon.getType2() != com.example.battlesimulator.model.enums.Type.PSYCHIC && pokemon.getType2() != com.example.battlesimulator.model.enums.Type.FIRE) {
+            log.add(pokemon.getNickname() + " transformed into Zen Mode!");
+            if (pokemon.getType1() == com.example.battlesimulator.model.enums.Type.FIRE) pokemon.setType2(com.example.battlesimulator.model.enums.Type.PSYCHIC);
+            else pokemon.setType2(com.example.battlesimulator.model.enums.Type.FIRE);
         }
         if (ab == com.example.battlesimulator.model.enums.Ability.FORECAST) {
-            if (session.getWeather() == com.example.battlesimulator.model.enums.Weather.SUN) log.add(pokemon.getNickname() + " transformed into the Sunny Form!");
-            else if (session.getWeather() == com.example.battlesimulator.model.enums.Weather.RAIN) log.add(pokemon.getNickname() + " transformed into the Rainy Form!");
-            else if (session.getWeather() == com.example.battlesimulator.model.enums.Weather.HAIL) log.add(pokemon.getNickname() + " transformed into the Snowy Form!");
+            if (session.getWeather() == com.example.battlesimulator.model.enums.Weather.SUN) { pokemon.setType1(com.example.battlesimulator.model.enums.Type.FIRE); pokemon.setType2(com.example.battlesimulator.model.enums.Type.NONE); log.add(pokemon.getNickname() + " transformed into the Sunny Form!"); }
+            else if (session.getWeather() == com.example.battlesimulator.model.enums.Weather.RAIN) { pokemon.setType1(com.example.battlesimulator.model.enums.Type.WATER); pokemon.setType2(com.example.battlesimulator.model.enums.Type.NONE); log.add(pokemon.getNickname() + " transformed into the Rainy Form!"); }
+            else if (session.getWeather() == com.example.battlesimulator.model.enums.Weather.HAIL) { pokemon.setType1(com.example.battlesimulator.model.enums.Type.ICE); pokemon.setType2(com.example.battlesimulator.model.enums.Type.NONE); log.add(pokemon.getNickname() + " transformed into the Snowy Form!"); }
+            else { pokemon.setType1(com.example.battlesimulator.model.enums.Type.NORMAL); pokemon.setType2(com.example.battlesimulator.model.enums.Type.NONE); }
         }
         switch (pokemon.getAbility()) {
             case SPEED_BOOST -> applyStage(pokemon, "speed", +1, log);
@@ -3280,7 +3337,7 @@ public class BattleEngineService {
         if (!isContactMove(move) || defender.getAbility() == null) return;
         if (isAbilitySuppressed(session)) return;
         if (attacker.getAbility() == Ability.POISON_TOUCH && rng.nextInt(10) < 3) {
-            applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.POISON, attacker, log);
+            applyStatus(session, defender, com.example.battlesimulator.model.enums.StatusCondition.POISON, attacker, log);
         }
         switch (defender.getAbility()) {
             case LINGERING_AROMA, MUMMY -> {
@@ -3296,24 +3353,26 @@ public class BattleEngineService {
                 log.add(attacker.getNickname() + " swapped Abilities with its target!");
             }
             case PERISH_BODY -> {
+                if (!attacker.isPerishSongActive()) { attacker.setPerishSongActive(true); attacker.setPerishSongTurns(3); }
+                if (!defender.isPerishSongActive()) { defender.setPerishSongActive(true); defender.setPerishSongTurns(3); }
                 log.add("Both Pokémon will faint in 3 turns!");
             }
             case GOOEY, TANGLING_HAIR -> { applyStage(attacker, "speed", -1, log); log.add(attacker.getNickname() + "'s Speed fell due to the opponent's Ability!"); }
             case STATIC -> {
                 if (rng.nextInt(10) < 3) { // 30%
-                    applyStatus(attacker, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, log);
+                    applyStatus(session, attacker, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, log);
                     log.add(defender.getNickname() + "'s Static paralyzed " + attacker.getNickname() + "!");
                 }
             }
             case FLAME_BODY -> {
                 if (rng.nextInt(10) < 3) {
-                    applyStatus(attacker, com.example.battlesimulator.model.enums.StatusCondition.BURN, log);
+                    applyStatus(session, attacker, com.example.battlesimulator.model.enums.StatusCondition.BURN, log);
                     log.add(defender.getNickname() + "'s Flame Body burned " + attacker.getNickname() + "!");
                 }
             }
             case POISON_POINT -> {
                 if (rng.nextInt(10) < 3) {
-                    applyStatus(attacker, com.example.battlesimulator.model.enums.StatusCondition.POISON, log);
+                    applyStatus(session, attacker, com.example.battlesimulator.model.enums.StatusCondition.POISON, log);
                     log.add(defender.getNickname() + "'s Poison Point poisoned " + attacker.getNickname() + "!");
                 }
             }
@@ -3331,7 +3390,7 @@ public class BattleEngineService {
                         case 1 -> com.example.battlesimulator.model.enums.StatusCondition.POISON;
                         default -> com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS;
                     };
-                    applyStatus(attacker, sc, log);
+                    applyStatus(session, attacker, sc, log);
                     log.add(defender.getNickname() + "'s Effect Spore affected " + attacker.getNickname() + "!");
                 }
             }
@@ -3491,9 +3550,9 @@ public class BattleEngineService {
                     log.add(pokemon.getNickname() + " ate its Micle Berry! Its next move will be more accurate!");
                 }
             }
-            case FLAME_ORB -> applyStatus(pokemon,
+            case FLAME_ORB -> applyStatus(session, pokemon,
                     com.example.battlesimulator.model.enums.StatusCondition.BURN, log);
-            case TOXIC_ORB -> applyStatus(pokemon,
+            case TOXIC_ORB -> applyStatus(session, pokemon,
                     com.example.battlesimulator.model.enums.StatusCondition.TOXIC, log);
             default -> {}
         }
@@ -3761,7 +3820,7 @@ public class BattleEngineService {
                         (toxicSpikes == 1)
                                 ? com.example.battlesimulator.model.enums.StatusCondition.POISON
                                 : com.example.battlesimulator.model.enums.StatusCondition.TOXIC;
-                applyStatus(incoming, sc, log);
+                applyStatus(session, incoming, sc, log);
             }
         }
 
@@ -3857,6 +3916,16 @@ public class BattleEngineService {
      * Confusion counts down at move-use time instead.
      */
     private void tickVolatileConditions(BattlePokemon pokemon, List<String> log) {
+        if (pokemon.isPerishSongActive()) {
+            int remaining = pokemon.getPerishSongTurns() - 1;
+            pokemon.setPerishSongTurns(remaining);
+            if (remaining == 0) {
+                pokemon.setCurrentHp(0);
+                log.add(pokemon.getNickname() + "'s perish count fell to 0!");
+            } else {
+                log.add(pokemon.getNickname() + "'s perish count fell to " + remaining + ".");
+            }
+        }
         // Flinch only lasts within a single turn; clear it at end of turn
         pokemon.setFlinched(false);
         if (pokemon.isTaunted()) {
