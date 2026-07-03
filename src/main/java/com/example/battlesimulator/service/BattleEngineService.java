@@ -388,6 +388,10 @@ public class BattleEngineService {
         double p2AbilitySpeedFactor = abilitySpeedFactor(p2, session);
         int p1EffectiveSpeed = (int) Math.floor(p1.getSpeed() * stageMultiplier(p1.getSpeedStage()) * p1ParaFactor * p1ScarfFactor * p1IronBallFactor * p1AbilitySpeedFactor);
         int p2EffectiveSpeed = (int) Math.floor(p2.getSpeed() * stageMultiplier(p2.getSpeedStage()) * p2ParaFactor * p2ScarfFactor * p2IronBallFactor * p2AbilitySpeedFactor);
+        if (session.getTrickRoomTurnsRemaining() > 0) {
+            p1EffectiveSpeed = 10000 - p1EffectiveSpeed;
+            p2EffectiveSpeed = 10000 - p2EffectiveSpeed;
+        }
 
         boolean p1GoesFirst;
         if (p1Priority != p2Priority) {
@@ -820,7 +824,20 @@ public class BattleEngineService {
                 (item == HeldItem.FIRIUM_Z && mType == com.example.battlesimulator.model.enums.Type.FIRE) ||
                 (item == HeldItem.WATERIUM_Z && mType == com.example.battlesimulator.model.enums.Type.WATER) ||
                 (item == HeldItem.GRASSIUM_Z && mType == com.example.battlesimulator.model.enums.Type.GRASS) ||
-                (item == HeldItem.ELECTRIUM_Z && mType == com.example.battlesimulator.model.enums.Type.ELECTRIC)) {
+                (item == HeldItem.ELECTRIUM_Z && mType == com.example.battlesimulator.model.enums.Type.ELECTRIC) ||
+                (item == HeldItem.ICIUM_Z && mType == com.example.battlesimulator.model.enums.Type.ICE) ||
+                (item == HeldItem.FIGHTINIUM_Z && mType == com.example.battlesimulator.model.enums.Type.FIGHTING) ||
+                (item == HeldItem.POISONIUM_Z && mType == com.example.battlesimulator.model.enums.Type.POISON) ||
+                (item == HeldItem.GROUNDIUM_Z && mType == com.example.battlesimulator.model.enums.Type.GROUND) ||
+                (item == HeldItem.FLYINIUM_Z && mType == com.example.battlesimulator.model.enums.Type.FLYING) ||
+                (item == HeldItem.PSYCHIUM_Z && mType == com.example.battlesimulator.model.enums.Type.PSYCHIC) ||
+                (item == HeldItem.BUGINIUM_Z && mType == com.example.battlesimulator.model.enums.Type.BUG) ||
+                (item == HeldItem.ROCKIUM_Z && mType == com.example.battlesimulator.model.enums.Type.ROCK) ||
+                (item == HeldItem.GHOSTIUM_Z && mType == com.example.battlesimulator.model.enums.Type.GHOST) ||
+                (item == HeldItem.DRAGONIUM_Z && mType == com.example.battlesimulator.model.enums.Type.DRAGON) ||
+                (item == HeldItem.DARKINIUM_Z && mType == com.example.battlesimulator.model.enums.Type.DARK) ||
+                (item == HeldItem.STEELIUM_Z && mType == com.example.battlesimulator.model.enums.Type.STEEL) ||
+                (item == HeldItem.FAIRIUM_Z && mType == com.example.battlesimulator.model.enums.Type.FAIRY)) {
                 log.add(attacker.getNickname() + " unleashed its full Z-Power!");
                 attacker.setHeldItem(HeldItem.NONE);
                 consumeHeldItem(attacker);
@@ -1762,6 +1779,17 @@ public class BattleEngineService {
             }
         }
 
+        // Count down Trick Room
+        if (session.getTrickRoomTurnsRemaining() > 0) {
+            int trRemaining = session.getTrickRoomTurnsRemaining() - 1;
+            if (trRemaining <= 0) {
+                log.add("The twisted dimensions returned to normal!");
+                session.setTrickRoomTurnsRemaining(0);
+            } else {
+                session.setTrickRoomTurnsRemaining(trRemaining);
+            }
+        }
+
         // Count down weather duration
         int remaining = session.getWeatherTurnsRemaining() - 1;
         if (remaining <= 0) {
@@ -2283,6 +2311,10 @@ public class BattleEngineService {
         double p2AbilitySpeedFactor = abilitySpeedFactor(p2, session);
         int p1EffectiveSpeed = (int) Math.floor(p1.getSpeed() * stageMultiplier(p1.getSpeedStage()) * p1ParaFactor * p1ScarfFactor * p1IronBallFactor * p1AbilitySpeedFactor);
         int p2EffectiveSpeed = (int) Math.floor(p2.getSpeed() * stageMultiplier(p2.getSpeedStage()) * p2ParaFactor * p2ScarfFactor * p2IronBallFactor * p2AbilitySpeedFactor);
+        if (session.getTrickRoomTurnsRemaining() > 0) {
+            p1EffectiveSpeed = 10000 - p1EffectiveSpeed;
+            p2EffectiveSpeed = 10000 - p2EffectiveSpeed;
+        }
         boolean p1GoesFirst;
         if (p1Priority != p2Priority) {
             p1GoesFirst = p1Priority > p2Priority;
@@ -2366,6 +2398,7 @@ public class BattleEngineService {
         copy.setBattleHistory(new ArrayList<>(original.getBattleHistory()));
         copy.setWeather(original.getWeather());
         copy.setWeatherTurnsRemaining(original.getWeatherTurnsRemaining());
+        copy.setTrickRoomTurnsRemaining(original.getTrickRoomTurnsRemaining());
         copy.setTerrain(original.getTerrain());
         copy.setTerrainTurnsRemaining(original.getTerrainTurnsRemaining());
         copy.setSpikesPlayer1(original.getSpikesPlayer1());
@@ -2579,13 +2612,6 @@ public class BattleEngineService {
     }
 
     /** Returns a speed multiplier granted by the Pokémon's ability given the current weather. */
-    private boolean isAbilitySuppressed(BattlePokemon pokemon, BattleSession session) {
-        if (pokemon == null) return false;
-        if (session.getPlayer1Active() != null && session.getPlayer1Active().getAbility() == Ability.NEUTRALIZING_GAS) return true;
-        if (session.getPlayer2Active() != null && session.getPlayer2Active().getAbility() == Ability.NEUTRALIZING_GAS) return true;
-        return false;
-    }
-
     private boolean isAbilitySuppressed(BattleSession session) {
         if (session == null) return false;
         if (session.getPlayer1Active() != null && session.getPlayer1Active().getAbility() == Ability.NEUTRALIZING_GAS) return true;
@@ -2625,11 +2651,12 @@ public class BattleEngineService {
         incoming.setSupremeOverlordStacks(countFaintedAllies(incoming, session));
         switch (incoming.getAbility()) {
             case AIR_LOCK, CLOUD_NINE -> log.add(incoming.getNickname() + "'s ability suppressed the effects of the weather!");
+            case UNNERVE -> { log.add(incoming.getNickname() + " is too nervous to eat Berries!"); }
             case ILLUSION -> { log.add(incoming.getNickname() + " cast an Illusion!"); }
             case IMPOSTER -> { if (opponent != null) log.add(incoming.getNickname() + " transformed into " + opponent.getNickname() + "!"); }
             case COMMANDER -> { log.add(incoming.getNickname() + " was swallowed by Dondozo! (Stats boosted)"); applyStage(incoming, "attack", 2, log); applyStage(incoming, "specialAttack", 2, log); applyStage(incoming, "speed", 2, log); }
-            case SCHOOLING -> { if(incoming.getCurrentHp() > incoming.getMaxHp()/4) log.add(incoming.getNickname() + " formed a school!"); }
-            case SHIELDS_DOWN -> { if(incoming.getCurrentHp() > incoming.getMaxHp()/2) log.add(incoming.getNickname() + "'s shields are up!"); }
+            case SCHOOLING -> { if(incoming.getCurrentHp() > incoming.getMaxHp()/4) { log.add(incoming.getNickname() + " formed a school! (Defense Up)"); applyStage(incoming, "defense", 1, log); applyStage(incoming, "specialDefense", 1, log); } }
+            case SHIELDS_DOWN -> { if(incoming.getCurrentHp() > incoming.getMaxHp()/2) { log.add(incoming.getNickname() + "'s shields are up! (Defenses Up, Speed Down)"); applyStage(incoming, "defense", 1, log); applyStage(incoming, "specialDefense", 1, log); applyStage(incoming, "speed", -1, log); } }
             case MIMICRY -> { if(session.getTerrain()!=com.example.battlesimulator.model.enums.Terrain.NONE) log.add(incoming.getNickname() + "'s type changed to match the terrain!"); }
             case INTIMIDATE -> {
                 if (opponent != null && !opponent.isFainted()) {

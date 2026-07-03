@@ -90,7 +90,20 @@ public enum HeldItem {
     FIRIUM_Z("Firium Z", "Upgrades Fire-type moves to Z-Moves."),
     WATERIUM_Z("Waterium Z", "Upgrades Water-type moves to Z-Moves."),
     GRASSIUM_Z("Grassium Z", "Upgrades Grass-type moves to Z-Moves."),
-    ELECTRIUM_Z("Electrium Z", "Upgrades Electric-type moves to Z-Moves.");
+    ELECTRIUM_Z("Electrium Z", "Upgrades Electric-type moves to Z-Moves."),
+    ICIUM_Z("Icium Z", "Upgrades Ice-type moves to Z-Moves."),
+    FIGHTINIUM_Z("Fightinium Z", "Upgrades Fighting-type moves to Z-Moves."),
+    POISONIUM_Z("Poisonium Z", "Upgrades Poison-type moves to Z-Moves."),
+    GROUNDIUM_Z("Groundium Z", "Upgrades Ground-type moves to Z-Moves."),
+    FLYINIUM_Z("Flyinium Z", "Upgrades Flying-type moves to Z-Moves."),
+    PSYCHIUM_Z("Psychium Z", "Upgrades Psychic-type moves to Z-Moves."),
+    BUGINIUM_Z("Buginium Z", "Upgrades Bug-type moves to Z-Moves."),
+    ROCKIUM_Z("Rockium Z", "Upgrades Rock-type moves to Z-Moves."),
+    GHOSTIUM_Z("Ghostium Z", "Upgrades Ghost-type moves to Z-Moves."),
+    DRAGONIUM_Z("Dragonium Z", "Upgrades Dragon-type moves to Z-Moves."),
+    DARKINIUM_Z("Darkinium Z", "Upgrades Dark-type moves to Z-Moves."),
+    STEELIUM_Z("Steelium Z", "Upgrades Steel-type moves to Z-Moves."),
+    FAIRIUM_Z("Fairium Z", "Upgrades Fairy-type moves to Z-Moves.");
 
     private final String displayName;
     private final String description;
