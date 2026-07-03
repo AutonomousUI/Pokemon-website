@@ -830,6 +830,7 @@ public class BattleEngineService {
 
         // Z-Move
         boolean isZMove = false;
+        com.example.battlesimulator.model.enums.HeldItem triggeredZCrystal = null;
         if (attacker.getHeldItem() != null && attacker.getHeldItem().name().endsWith("_Z") && move.category() != com.example.battlesimulator.model.enums.MoveCategory.STATUS) {
             com.example.battlesimulator.model.enums.HeldItem item = attacker.getHeldItem();
             com.example.battlesimulator.model.enums.Type mType = move.type();
@@ -850,11 +851,35 @@ public class BattleEngineService {
                 (item == HeldItem.DRAGONIUM_Z && mType == com.example.battlesimulator.model.enums.Type.DRAGON) ||
                 (item == HeldItem.DARKINIUM_Z && mType == com.example.battlesimulator.model.enums.Type.DARK) ||
                 (item == HeldItem.STEELIUM_Z && mType == com.example.battlesimulator.model.enums.Type.STEEL) ||
-                (item == HeldItem.FAIRIUM_Z && mType == com.example.battlesimulator.model.enums.Type.FAIRY)) {
+                (item == HeldItem.FAIRIUM_Z && mType == com.example.battlesimulator.model.enums.Type.FAIRY) ||
+                (item == HeldItem.PIKANIUM_Z && move.id().equals("volt-tackle") && attacker.getSpeciesId().equalsIgnoreCase("Pikachu")) ||
+                (item == HeldItem.ALORAICHIUM_Z && move.id().equals("thunderbolt") && attacker.getSpeciesId().equalsIgnoreCase("Raichu-Alola")) ||
+                (item == HeldItem.EEVIUM_Z && move.id().equals("last-resort") && attacker.getSpeciesId().equalsIgnoreCase("Eevee")) ||
+                (item == HeldItem.DECIDIUM_Z && move.id().equals("spirit-shackle") && attacker.getSpeciesId().equalsIgnoreCase("Decidueye")) ||
+                (item == HeldItem.INCINIUM_Z && move.id().equals("darkest-lariat") && attacker.getSpeciesId().equalsIgnoreCase("Incineroar")) ||
+                (item == HeldItem.PRIMARIUM_Z && move.id().equals("sparkling-aria") && attacker.getSpeciesId().equalsIgnoreCase("Primarina")) ||
+                (item == HeldItem.SNORLIUM_Z && move.id().equals("giga-impact") && attacker.getSpeciesId().equalsIgnoreCase("Snorlax")) ||
+                (item == HeldItem.MEWNIUM_Z && move.id().equals("psychic") && attacker.getSpeciesId().equalsIgnoreCase("Mew")) ||
+                (item == HeldItem.MARSHADIUM_Z && move.id().equals("spectral-thief") && attacker.getSpeciesId().equalsIgnoreCase("Marshadow"))) {
+                
                 log.add(attacker.getNickname() + " unleashed its full Z-Power!");
+                
+                if (item == HeldItem.EEVIUM_Z) {
+                    log.add(attacker.getNickname() + " used Extreme Evoboost!");
+                    applyStage(attacker, "attack", 2, log);
+                    applyStage(attacker, "defense", 2, log);
+                    applyStage(attacker, "specialAttack", 2, log);
+                    applyStage(attacker, "specialDefense", 2, log);
+                    applyStage(attacker, "speed", 2, log);
+                    attacker.setHeldItem(HeldItem.NONE);
+                    consumeHeldItem(attacker);
+                    return; // Ends the attack early because it deals no damage!
+                }
+                
                 attacker.setHeldItem(HeldItem.NONE);
                 consumeHeldItem(attacker);
                 isZMove = true;
+                triggeredZCrystal = item;
             }
         }
 
@@ -1018,6 +1043,17 @@ public class BattleEngineService {
             }
             if (defender.isFainted()) {
                 applyOnKnockoutAbilityEffects(attacker, log);
+            }
+        }
+        if (triggeredZCrystal != null && !defender.isFainted()) {
+            if (triggeredZCrystal == HeldItem.ALORAICHIUM_Z) {
+                log.add(attacker.getNickname() + " used Stoked Sparksurfer!");
+                applyStatus(defender, com.example.battlesimulator.model.enums.StatusCondition.PARALYSIS, attacker, log);
+            } else if (triggeredZCrystal == HeldItem.MEWNIUM_Z) {
+                log.add(attacker.getNickname() + " used Genesis Supernova!");
+                session.setTerrain(com.example.battlesimulator.model.enums.Terrain.PSYCHIC);
+                session.setTerrainTurnsRemaining(5);
+                log.add("The battlefield got weird! (Psychic Terrain)");
             }
         }
     }

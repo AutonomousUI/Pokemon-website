@@ -103,7 +103,18 @@ public enum HeldItem {
     DRAGONIUM_Z("Dragonium Z", "Upgrades Dragon-type moves to Z-Moves."),
     DARKINIUM_Z("Darkinium Z", "Upgrades Dark-type moves to Z-Moves."),
     STEELIUM_Z("Steelium Z", "Upgrades Steel-type moves to Z-Moves."),
-    FAIRIUM_Z("Fairium Z", "Upgrades Fairy-type moves to Z-Moves.");
+    FAIRIUM_Z("Fairium Z", "Upgrades Fairy-type moves to Z-Moves."),
+
+    // Species-Exclusive Z-Crystals
+    PIKANIUM_Z("Pikanium Z", "Upgrades Volt Tackle to Catastropika."),
+    ALORAICHIUM_Z("Aloraichium Z", "Upgrades Thunderbolt to Stoked Sparksurfer."),
+    EEVIUM_Z("Eevium Z", "Upgrades Last Resort to Extreme Evoboost."),
+    DECIDIUM_Z("Decidium Z", "Upgrades Spirit Shackle to Sinister Arrow Raid."),
+    INCINIUM_Z("Incinium Z", "Upgrades Darkest Lariat to Malicious Moonsault."),
+    PRIMARIUM_Z("Primarium Z", "Upgrades Sparkling Aria to Oceanic Operetta."),
+    SNORLIUM_Z("Snorlium Z", "Upgrades Giga Impact to Pulverizing Pancake."),
+    MEWNIUM_Z("Mewnium Z", "Upgrades Psychic to Genesis Supernova."),
+    MARSHADIUM_Z("Marshadium Z", "Upgrades Spectral Thief to Soul-Stealing 7-Star Strike.");
 
     private final String displayName;
     private final String description;
