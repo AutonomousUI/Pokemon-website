@@ -4,6 +4,7 @@ import com.example.battlesimulator.dto.SpeciesStatsResponse;
 import com.example.battlesimulator.dto.pokeapi.MoveApiResponse;
 import com.example.battlesimulator.dto.pokeapi.PokemonApiResponse;
 import com.example.battlesimulator.dto.pokeapi.PokemonListApiResponse;
+import com.example.battlesimulator.dto.pokeapi.SpeciesApiResponse;
 import com.example.battlesimulator.model.BattlePokemon;
 import com.example.battlesimulator.model.Move;
 import com.example.battlesimulator.model.StatBlock;
@@ -87,10 +88,12 @@ public class PokeApiService {
 
         int finalHp = calculateHpStat(baseHp, ivs.hp(), evs.hp(), level);
 
+        com.example.battlesimulator.model.enums.Gender assignedGender = determineGender(apiResponse);
+
         return BattlePokemon.builder()
                 .speciesId(apiResponse.name())
                 .originalSpeciesId(apiResponse.name())
-                .gender(new java.util.Random().nextBoolean() ? com.example.battlesimulator.model.enums.Gender.MALE : com.example.battlesimulator.model.enums.Gender.FEMALE)
+                .gender(assignedGender)
                 .nickname(apiResponse.name())
                 .level(level)
                 .nature(nature)
@@ -239,6 +242,19 @@ public class PokeApiService {
         }
     }
 
+    private com.example.battlesimulator.model.enums.Gender determineGender(PokemonApiResponse apiResponse) {
+        if (apiResponse.species() == null || apiResponse.species().name() == null) {
+            return new java.util.Random().nextBoolean() ? com.example.battlesimulator.model.enums.Gender.MALE : com.example.battlesimulator.model.enums.Gender.FEMALE;
+        }
+        int rate = getGenderRate(apiResponse.species().name());
+        if (rate == -1) return com.example.battlesimulator.model.enums.Gender.GENDERLESS;
+        if (rate == 8) return com.example.battlesimulator.model.enums.Gender.FEMALE;
+        if (rate == 0) return com.example.battlesimulator.model.enums.Gender.MALE;
+        
+        int rand = new java.util.Random().nextInt(8);
+        return (rand < rate) ? com.example.battlesimulator.model.enums.Gender.FEMALE : com.example.battlesimulator.model.enums.Gender.MALE;
+    }
+
     private int getBaseStat(PokemonApiResponse response, String statName) {
         return response.stats().stream()
                 .filter(s -> s.stat().name().equals(statName))
@@ -358,5 +374,18 @@ public class PokeApiService {
                 .uri("/pokemon/{name}", speciesName.toLowerCase())
                 .retrieve()
                 .body(PokemonApiResponse.class);
+    }
+    
+    @Cacheable("speciesGenderRate")
+    public int getGenderRate(String speciesName) {
+        try {
+            SpeciesApiResponse res = restClient.get()
+                    .uri("/pokemon-species/{name}", speciesName.toLowerCase())
+                    .retrieve()
+                    .body(SpeciesApiResponse.class);
+            return res != null ? res.gender_rate() : -1;
+        } catch (Exception e) {
+            return -1;
+        }
     }
 }

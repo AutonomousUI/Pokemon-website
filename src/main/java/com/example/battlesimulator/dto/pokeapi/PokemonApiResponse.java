@@ -8,7 +8,8 @@ public record PokemonApiResponse(
         List<AbilitySlot> abilities,
         List<MoveSlot> moves,
         List<TypeSlot> types,
-        List<StatSlot> stats
+        List<StatSlot> stats,
+        SpeciesSlot species
 ) {
     public record AbilitySlot(AbilityDetail ability, boolean is_hidden, int slot) {}
     public record AbilityDetail(String name) {}
@@ -21,4 +22,6 @@ public record PokemonApiResponse(
 
     public record StatSlot(int base_stat, StatDetail stat) {}
     public record StatDetail(String name) {}
+    
+    public record SpeciesSlot(String name) {}
 }
